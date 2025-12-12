@@ -6,6 +6,7 @@ import ProfileSetup from "./profileSetup.jsx";
 import AddMealForm from "./components/AddMealForm.jsx";
 import MealList from "./components/MealList.jsx";
 import CreateMeal from "./components/CreateMeal.jsx";
+import MyMeals from "./components/MyMeals.jsx";
 import { createOrUpdateUserNumeric, getAllUsersNumeric, getMealsForNumericUser, recordMealNumeric } from "./index.js";
 import MealLedger from "./components/MealLedger.jsx";
 
@@ -19,6 +20,10 @@ export default function App() {
   const [otherUsers, setOtherUsers] = useState([]);   // array of {id, first_name,...}
   const [meals, setMeals] = useState({});
   const [loading, setLoading] = useState(false);
+  const [apartments, setApartments] = useState([]);
+  const [mealEventsVersion, setMealEventsVersion] = useState(0); // increment to trigger reload in MyMeals
+
+
 
   // Load a numeric user's profile
   async function loadProfile(numericId) {
@@ -77,6 +82,12 @@ export default function App() {
         setOtherUsers(others);
         await loadMealLedger(numericId, others);
       }
+      // fetch apartments
+      const aptSnap = await get(ref(rtdb, "apartments"));
+      const aptData = aptSnap.exists() ? aptSnap.val() : {};
+      const aptList = Object.entries(aptData).map(([id, a]) => ({ id, ...a }));
+      setApartments(aptList);
+
 
       setLoading(false);
     });
@@ -127,6 +138,11 @@ export default function App() {
     setLoading(false);
   }
 
+    function refreshMeals() {
+      setMealEventsVersion(prev => prev + 1);
+  }
+
+
   if (loading) return <div style={{ padding: 20 }}>Loading...</div>;
 
   return (
@@ -151,7 +167,14 @@ export default function App() {
             // optional: refresh lists / ledger if desired, or console.log
             console.log("New meal created:", mealId);
             // Optionally reload meal matrix or other state here
+            refreshMeals();
           }} />
+          <MyMeals
+            key={mealEventsVersion} // changing key forces a fresh fetch
+            myId={myId}
+            users={otherUsers.concat({ id: myId, ...profile })} // include self
+            apartments={apartments}
+          />
         </>
       )}
     </div>
