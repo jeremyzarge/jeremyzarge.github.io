@@ -2,10 +2,12 @@
 import { useEffect, useState, useMemo } from "react";
 import { rtdb } from "../firebaseClient.js";
 import { ref, get } from "firebase/database";
+import MealEditor from "./MealEditor.jsx";
 
 export default function MyMeals({ myId, users, apartments }) {
   const [mealEvents, setMealEvents] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [selectedMealId, setSelectedMealId] = useState(null); // <-- selected meal
 
   // Filters
   const [searchText, setSearchText] = useState("");
@@ -33,19 +35,15 @@ export default function MyMeals({ myId, users, apartments }) {
   const filteredMeals = useMemo(() => {
     return mealEvents
       .filter((m) => {
-        // text search
         if (searchText && !m.title.toLowerCase().includes(searchText.toLowerCase())) return false;
 
-        // attendee filter
         if (selectedUser) {
           const participantIds = [...Object.keys(m.hosts || {}), ...Object.keys(m.guests || {})];
           if (!participantIds.includes(selectedUser)) return false;
         }
 
-        // apartment filter
         if (selectedApartment && m.host_apartment_id !== selectedApartment) return false;
 
-        // host/guest filter
         if (hostGuestFilter) {
           const isHost = m.hosts && m.hosts[myId];
           const isGuest = m.guests && m.guests[myId];
@@ -57,16 +55,11 @@ export default function MyMeals({ myId, users, apartments }) {
       })
       .sort((a, b) => {
         switch (sortBy) {
-          case "date_asc":
-            return new Date(a.datetime) - new Date(b.datetime);
-          case "date_desc":
-            return new Date(b.datetime) - new Date(a.datetime);
-          case "title_asc":
-            return a.title.localeCompare(b.title);
-          case "title_desc":
-            return b.title.localeCompare(a.title);
-          default:
-            return 0;
+          case "date_asc": return new Date(a.datetime) - new Date(b.datetime);
+          case "date_desc": return new Date(b.datetime) - new Date(a.datetime);
+          case "title_asc": return a.title.localeCompare(b.title);
+          case "title_desc": return b.title.localeCompare(a.title);
+          default: return 0;
         }
       });
   }, [mealEvents, searchText, selectedUser, selectedApartment, hostGuestFilter, sortBy, myId]);
@@ -119,11 +112,12 @@ export default function MyMeals({ myId, users, apartments }) {
             <th style={{ padding: "8px 6px" }}>Guests</th>
             <th style={{ padding: "8px 6px" }}>Apartment</th>
             <th style={{ padding: "8px 6px" }}>Role</th>
+            <th style={{ padding: "8px 6px" }}>Edit</th> {/* New Edit column */}
           </tr>
         </thead>
         <tbody>
           {filteredMeals.length === 0 ? (
-            <tr><td colSpan={6} style={{ padding: 8 }}>No meals match the filters.</td></tr>
+            <tr><td colSpan={7} style={{ padding: 8 }}>No meals match the filters.</td></tr>
           ) : filteredMeals.map((m) => {
             const hostNames = Object.keys(m.hosts || {}).map(id => {
               const u = users.find(x => x.id === id);
@@ -147,11 +141,27 @@ export default function MyMeals({ myId, users, apartments }) {
                 <td style={{ padding: 8 }}>{guestNames}</td>
                 <td style={{ padding: 8 }}>{apt}</td>
                 <td style={{ padding: 8 }}>{role}</td>
+                <td style={{ padding: 8 }}>
+                  <button
+                    onClick={() => setSelectedMealId(m.id)}
+                    style={{ padding: "6px 10px", borderRadius: 6, border: "none", background: "#3b82f6", color: "white", cursor: "pointer" }}
+                  >
+                    Edit
+                  </button>
+                </td>
               </tr>
             );
           })}
         </tbody>
       </table>
+
+      {/* MealEditor modal */}
+      {selectedMealId && (
+        <MealEditor
+          mealId={selectedMealId}
+          onClose={() => setSelectedMealId(null)}
+        />
+      )}
     </div>
   );
 }
