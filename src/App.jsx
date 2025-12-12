@@ -5,7 +5,9 @@ import { ref, get } from "firebase/database";
 import ProfileSetup from "./profileSetup.jsx";
 import AddMealForm from "./components/AddMealForm.jsx";
 import MealList from "./components/MealList.jsx";
+import CreateMeal from "./components/CreateMeal.jsx";
 import { createOrUpdateUserNumeric, getAllUsersNumeric, getMealsForNumericUser, recordMealNumeric } from "./index.js";
+import MealLedger from "./components/MealLedger.jsx";
 
 const { auth, loginWithGoogle } = firebaseClient;
 
@@ -143,9 +145,13 @@ export default function App() {
         <>
           <h1 style={{ color: '#1f2937' }}>Welcome back, {profile ? `${profile.first_name} ${profile.last_name}` : authUser.displayName}!</h1>
 
-          <MealList meals={meals} otherUsers={otherUsers} />
+          <MealLedger currentUserId={myId}/>
 
-          {otherUsers.length > 0 && <AddMealForm onAddMeal={handleAddMeal} otherUsers={otherUsers} />}
+          <CreateMeal onCreated={(mealId) => {
+            // optional: refresh lists / ledger if desired, or console.log
+            console.log("New meal created:", mealId);
+            // Optionally reload meal matrix or other state here
+          }} />
         </>
       )}
     </div>

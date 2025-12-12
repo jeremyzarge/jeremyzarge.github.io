@@ -3,100 +3,153 @@ import { ref, set, get, update, remove } from "firebase/database";
 import { rtdb } from "./firebaseClient.js";
 
 /**
- * Create or update a numeric user record (users/{numericId}) and initialize meals rows.
- * profile should be { first_name, last_name, apartment, uid? }.
- * numericId is string.
+ * Create or update a numeric user record (users/{numericId}) and
+ * ensure meal_matrix rows exist.
  */
 export async function createOrUpdateUserNumeric(numericId, profile) {
-  // write profile (merge or set fully)
+  // write profile
   await set(ref(rtdb, `users/${numericId}`), profile);
 
-  // ensure meals row exists for this user
-  const mealsSnap = await get(ref(rtdb, `meals/${numericId}`));
-  if (!mealsSnap.exists()) {
-    await set(ref(rtdb, `meals/${numericId}`), {});
+  // ensure matrix row exists
+  const matrixSnap = await get(ref(rtdb, `meal_matrix/${numericId}`));
+  if (!matrixSnap.exists()) {
+    await set(ref(rtdb, `meal_matrix/${numericId}`), {});
   }
 
   // ensure bidirectional zeros with all existing numeric users
   const usersSnap = await get(ref(rtdb, "users"));
   const users = usersSnap.exists() ? usersSnap.val() : {};
   const updates = {};
+
   for (const otherId of Object.keys(users)) {
     if (otherId === numericId) continue;
-    // ensure eater->host and host->eater entries exist (default 0)
-    const eaterValSnap = await get(ref(rtdb, `meals/${numericId}/${otherId}`));
-    if (!eaterValSnap.exists()) updates[`meals/${numericId}/${otherId}`] = 0;
-    const hostValSnap = await get(ref(rtdb, `meals/${otherId}/${numericId}`));
-    if (!hostValSnap.exists()) updates[`meals/${otherId}/${numericId}`] = 0;
+
+    const aSnap = await get(ref(rtdb, `meal_matrix/${numericId}/${otherId}`));
+    if (!aSnap.exists()) updates[`meal_matrix/${numericId}/${otherId}`] = 0;
+
+    const bSnap = await get(ref(rtdb, `meal_matrix/${otherId}/${numericId}`));
+    if (!bSnap.exists()) updates[`meal_matrix/${otherId}/${numericId}`] = 0;
   }
+
   if (Object.keys(updates).length) {
     await update(ref(rtdb), updates);
   }
+
   return true;
 }
 
 /**
- * Delete a numeric user fully (users, meals rows, mappings id_to_uid & uid_to_id)
+ * Delete all user data from users/, meal_matrix/, meal_events, and mappings.
  */
 export async function deleteUserNumeric(numericId) {
-  // remove users/{numericId}
   await remove(ref(rtdb, `users/${numericId}`));
-  // remove meals/{numericId}
-  await remove(ref(rtdb, `meals/${numericId}`));
+  await remove(ref(rtdb, `meal_matrix/${numericId}`));
 
-  // remove references from other meals rows
-  const mealsSnap = await get(ref(rtdb, "meals"));
-  const allMeals = mealsSnap.exists() ? mealsSnap.val() : {};
+  // remove references from other matrix rows
+  const matrixSnap = await get(ref(rtdb, "meal_matrix"));
+  const all = matrixSnap.exists() ? matrixSnap.val() : {};
   const updates = {};
-  for (const otherId of Object.keys(allMeals)) {
-    if (allMeals[otherId] && allMeals[otherId][numericId] !== undefined) {
-      updates[`meals/${otherId}/${numericId}`] = null;
+
+  for (const otherId of Object.keys(all)) {
+    if (all[otherId] && all[otherId][numericId] !== undefined) {
+      updates[`meal_matrix/${otherId}/${numericId}`] = null;
     }
   }
   if (Object.keys(updates).length) await update(ref(rtdb), updates);
 
-  // remove mappings id_to_uid and uid_to_id for this numericId
+  // remove mappings
   const idToUidSnap = await get(ref(rtdb, `id_to_uid`));
   if (idToUidSnap.exists()) {
-    const idToUid = idToUidSnap.val();
-    if (idToUid && idToUid[numericId]) {
-      const uid = idToUid[numericId];
+    const map = idToUidSnap.val();
+    if (map[numericId]) {
+      const uid = map[numericId];
       await set(ref(rtdb, `id_to_uid/${numericId}`), null);
       await set(ref(rtdb, `uid_to_id/${uid}`), null);
     }
   }
+
   return true;
 }
 
 /**
- * Record one meal event (adds +count to eater->host and -count to host->eater).
- * eaterId and hostId are numeric id strings.
+ * Record one meal event directly in meal_matrix (legacy compatibility).
  */
 export async function recordMealNumeric(eaterId, hostId, count) {
   if (eaterId === hostId) throw new Error("Cannot eat by yourself.");
 
-  // Read current values (create if missing)
-  const eaterSnap = await get(ref(rtdb, `meals/${eaterId}/${hostId}`));
-  const hostSnap = await get(ref(rtdb, `meals/${hostId}/${eaterId}`));
+  const eaterSnap = await get(ref(rtdb, `meal_matrix/${eaterId}/${hostId}`));
+  const hostSnap = await get(ref(rtdb, `meal_matrix/${hostId}/${eaterId}`));
+
   const eaterVal = eaterSnap.exists() ? Number(eaterSnap.val()) : 0;
   const hostVal = hostSnap.exists() ? Number(hostSnap.val()) : 0;
 
-  await set(ref(rtdb, `meals/${eaterId}/${hostId}`), eaterVal + count);
-  await set(ref(rtdb, `meals/${hostId}/${eaterId}`), hostVal - count);
+  await set(ref(rtdb, `meal_matrix/${eaterId}/${hostId}`), eaterVal + count);
+  await set(ref(rtdb, `meal_matrix/${hostId}/${eaterId}`), hostVal - count);
 }
 
-/**
- * Get meals row for a numeric user (object)
- */
 export async function getMealsForNumericUser(numericId) {
-  const snap = await get(ref(rtdb, `meals/${numericId}`));
+  const snap = await get(ref(rtdb, `meal_matrix/${numericId}`));
   return snap.exists() ? snap.val() : {};
 }
 
-/**
- * Get all users (object keyed by numeric id)
- */
 export async function getAllUsersNumeric() {
   const snap = await get(ref(rtdb, "users"));
   return snap.exists() ? snap.val() : {};
+}
+
+export async function getNextNumericKeyForPath(path) {
+  const snap = await get(ref(rtdb, path));
+  if (!snap.exists()) return "1";
+  const data = snap.val() || {};
+  const ids = Object.keys(data)
+    .map(Number)
+    .filter(n => !Number.isNaN(n));
+  return String((ids.length ? Math.max(...ids) : 0) + 1);
+}
+
+/**
+ * Create a hosted meal event in meal_events/{id}
+ */
+export async function createMeal(mealObj) {
+  const nextId = await getNextNumericKeyForPath("meal_events");
+
+  const mealPath = `meal_events/${nextId}`;
+  await set(ref(rtdb, mealPath), mealObj);
+
+  // update meal_matrix using host/guest scoring logic
+  await updateMealMatrixForMeal(mealObj);
+
+  return nextId;
+}
+
+/**
+ * Update meal_matrix based on hosts and guests in the meal object
+ */
+export async function updateMealMatrixForMeal(mealObj) {
+  const hosts = mealObj.hosts ? Object.keys(mealObj.hosts) : [];
+  const guests = mealObj.guests ? Object.keys(mealObj.guests) : [];
+
+  if (!hosts.length || !guests.length) return;
+
+  const updates = {};
+
+  for (const h of hosts) {
+    for (const g of guests) {
+      const hostPath = `meal_matrix/${h}/${g}`;
+      const guestPath = `meal_matrix/${g}/${h}`;
+
+      const hostSnap = await get(ref(rtdb, hostPath));
+      const guestSnap = await get(ref(rtdb, guestPath));
+
+      const hostVal = hostSnap.exists() ? Number(hostSnap.val()) : 0;
+      const guestVal = guestSnap.exists() ? Number(guestSnap.val()) : 0;
+
+      updates[hostPath] = hostVal + 1; // host gets +1 per guest
+      updates[guestPath] = guestVal - 1; // guest loses -1 per host
+    }
+  }
+
+  if (Object.keys(updates).length) {
+    await update(ref(rtdb), updates);
+  }
 }
