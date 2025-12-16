@@ -9,6 +9,9 @@ import CreateMeal from "./components/CreateMeal.jsx";
 import MyMeals from "./components/MyMeals.jsx";
 import { createOrUpdateUserNumeric, getAllUsersNumeric, getMealsForNumericUser, recordMealNumeric } from "./index.js";
 import MealLedger from "./components/MealLedger.jsx";
+import Tabs from "./components/Tabs.jsx";
+import FloatingAddButton from "./components/FloatingAddButton.jsx";
+import Modal from "./components/Modal.jsx";
 
 const { auth, loginWithGoogle } = firebaseClient;
 
@@ -22,6 +25,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [apartments, setApartments] = useState([]);
   const [mealEventsVersion, setMealEventsVersion] = useState(0); // increment to trigger reload in MyMeals
+  const [activeTab, setActiveTab] = useState("ledger");
+  const [showCreate, setShowCreate] = useState(false);
 
 
 
@@ -145,38 +150,54 @@ export default function App() {
 
   if (loading) return <div style={{ padding: 20 }}>Loading...</div>;
 
+  if (!profile || !myId) {
+  return <div style={{ padding: 20 }}>Loading profile…</div>;
+}
+
   return (
-    <div style={{ padding: 30, fontFamily: "'Segoe UI', sans-serif", backgroundColor: "#f7fafc", minHeight: '100vh' }}>
-      {!authUser ? (
-        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 60 }}>
-          <button onClick={loginWithGoogle} style={{ padding: '12px 20px', backgroundColor: '#4285F4', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 16 }}>
-            Login with Google
-          </button>
-        </div>
-      ) : needsProfile ? (
-        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 20 }}>
-          <ProfileSetup user={authUser} onComplete={handleProfileComplete} />
-        </div>
-      ) : (
-        <>
-          <h1 style={{ color: '#1f2937' }}>Welcome back, {profile ? `${profile.first_name} ${profile.last_name}` : authUser.displayName}!</h1>
+   <>
+  <h1 style={{ color: '#1f2937' }}>
+  Welcome back,{" "}
+  {profile?.first_name
+    ? `${profile.first_name} ${profile.last_name}`
+    : authUser?.displayName ?? "User"}!
+</h1>
 
-          <MealLedger currentUserId={myId}/>
+  <Tabs active={activeTab} onChange={setActiveTab} />
 
-          <CreateMeal onCreated={(mealId) => {
-            // optional: refresh lists / ledger if desired, or console.log
-            console.log("New meal created:", mealId);
-            // Optionally reload meal matrix or other state here
-            refreshMeals();
-          }} />
-          <MyMeals
-            key={mealEventsVersion} // changing key forces a fresh fetch
-            myId={myId}
-            users={otherUsers.concat({ id: myId, ...profile })} // include self
-            apartments={apartments}
-          />
-        </>
-      )}
-    </div>
-  );
+  {activeTab === "ledger" && (
+    <MealLedger currentUserId={myId} />
+  )}
+
+  {activeTab === "past" && (
+    <MyMeals
+      myId={myId}
+      users={otherUsers.concat({ id: myId, ...profile })}
+      apartments={apartments}
+      mode="past"
+    />
+  )}
+
+  {activeTab === "upcoming" && (
+    <MyMeals
+      myId={myId}
+      users={otherUsers.concat({ id: myId, ...profile })}
+      apartments={apartments}
+      mode="upcoming"
+    />
+  )}
+
+  <FloatingAddButton onClick={() => setShowCreate(true)} />
+
+  {showCreate && (
+    <Modal onClose={() => setShowCreate(false)}>
+      <CreateMeal
+        onCreated={() => {
+          setShowCreate(false);
+          refreshMeals();
+        }}
+      />
+    </Modal>
+  )}
+</>);
 }
