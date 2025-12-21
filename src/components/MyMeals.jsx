@@ -29,25 +29,41 @@ export default function MyMeals({ myId, users, apartments, mode }) {
 
   const filteredMeals = useMemo(() => {
     return mealEvents
+      // ⭐️ NEW: Only show meals the current user is part of
+      .filter(m => {
+        const isHost = m.hosts && m.hosts[myId];
+        const isGuest = m.guests && m.guests[myId];
+        return isHost || isGuest;  // user must be host or guest
+      })
+
+      // existing filters
       .filter((m) => {
         const mealDate = new Date(m.datetime);
         const now = new Date();
         if (mode === "past" && mealDate > now) return false;
         if (mode === "upcoming" && mealDate < now) return false;
         if (searchText && !m.title.toLowerCase().includes(searchText.toLowerCase())) return false;
+
         if (selectedUser) {
-          const participantIds = [...Object.keys(m.hosts || {}), ...Object.keys(m.guests || {})];
+          const participantIds = [
+            ...Object.keys(m.hosts || {}),
+            ...Object.keys(m.guests || {})
+          ];
           if (!participantIds.includes(selectedUser)) return false;
         }
+
         if (selectedApartment && m.host_apartment_id !== selectedApartment) return false;
+
         if (hostGuestFilter) {
           const isHost = m.hosts && m.hosts[myId];
           const isGuest = m.guests && m.guests[myId];
           if (hostGuestFilter === "host" && !isHost) return false;
           if (hostGuestFilter === "guest" && !isGuest) return false;
         }
+
         return true;
       })
+
       .sort((a, b) => {
         switch (sortBy) {
           case "date_asc": return new Date(a.datetime) - new Date(b.datetime);
@@ -57,7 +73,16 @@ export default function MyMeals({ myId, users, apartments, mode }) {
           default: return 0;
         }
       });
-  }, [mealEvents, searchText, selectedUser, selectedApartment, hostGuestFilter, sortBy, myId]);
+  }, [
+    mealEvents,
+    searchText,
+    selectedUser,
+    selectedApartment,
+    hostGuestFilter,
+    sortBy,
+    myId,
+    mode
+  ]);
 
   if (loading) return <div style={{ padding: 20 }}>Loading meals...</div>;
 
@@ -72,6 +97,7 @@ export default function MyMeals({ myId, users, apartments, mode }) {
         gap: 12,
         marginBottom: 16
       }}>
+
         <input
           placeholder="Search title..."
           value={searchText}
@@ -85,22 +111,31 @@ export default function MyMeals({ myId, users, apartments, mode }) {
             fontWeight: 500
           }}
         />
+
         <select value={selectedUser} onChange={(e) => setSelectedUser(e.target.value)}
                 style={{ padding: 10, borderRadius: 8, border: "1px solid #e5e7eb", background: "#dbeafe", color: "#1e3a8a" }}>
           <option value="">-- Filter by user --</option>
-          {users.map(u => <option key={u.id} value={u.id}>{u.first_name} {u.last_name}</option>)}
+          {users.map(u => (
+            <option key={u.id} value={u.id}>{u.first_name} {u.last_name}</option>
+          ))}
         </select>
+
         <select value={selectedApartment} onChange={(e) => setSelectedApartment(e.target.value)}
                 style={{ padding: 10, borderRadius: 8, border: "1px solid #e5e7eb", background: "#e0f2fe", color: "#0c4a6e" }}>
           <option value="">-- Filter by apartment --</option>
-          {apartments.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          {apartments.map(a => (
+            <option key={a.id} value={a.id}>{a.name}</option>
+          ))}
         </select>
+
+        {/* ⭐️ RENAMED: "Filter by Role" */}
         <select value={hostGuestFilter} onChange={(e) => setHostGuestFilter(e.target.value)}
                 style={{ padding: 10, borderRadius: 8, border: "1px solid #e5e7eb", background: "#d1fae5", color: "#065f46" }}>
-          <option value="">-- Host / Guest --</option>
+          <option value="">-- Filter by Role --</option>
           <option value="host">Host</option>
           <option value="guest">Guest</option>
         </select>
+
         <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}
                 style={{ padding: 10, borderRadius: 8, border: "1px solid #e5e7eb", background: "#ede9fe", color: "#5b21b6" }}>
           <option value="date_desc">Date ↓</option>
@@ -127,6 +162,7 @@ export default function MyMeals({ myId, users, apartments, mode }) {
               ))}
             </tr>
           </thead>
+
           <tbody>
             {filteredMeals.length === 0 ? (
               <tr>
@@ -139,15 +175,23 @@ export default function MyMeals({ myId, users, apartments, mode }) {
                 const u = users.find(x => x.id === id);
                 return u ? `${u.first_name} ${u.last_name}` : id;
               }).join(", ");
+
               const guestNames = Object.keys(m.guests || {}).map(id => {
                 const u = users.find(x => x.id === id);
                 return u ? `${u.first_name} ${u.last_name}` : id;
               }).join(", ");
+
               const apt = apartments.find(a => a.id === m.host_apartment_id)?.name ?? "—";
-              const role = m.hosts && m.hosts[myId] ? "Host" : m.guests && m.guests[myId] ? "Guest" : "—";
+              const role =
+                m.hosts && m.hosts[myId]
+                  ? "Host"
+                  : m.guests && m.guests[myId]
+                    ? "Guest"
+                    : "—";
 
               return (
-                <tr key={m.id} style={{ borderBottom: "1px solid #fde68a", transition: "background 0.2s" }}
+                <tr key={m.id}
+                    style={{ borderBottom: "1px solid #fde68a", transition: "background 0.2s" }}
                     onMouseEnter={e => e.currentTarget.style.background = "#fef3c7"}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                   <td style={{ padding: 12 }}>{m.title}</td>
@@ -172,7 +216,7 @@ export default function MyMeals({ myId, users, apartments, mode }) {
                     </button>
                   </td>
                 </tr>
-              )
+              );
             })}
           </tbody>
         </table>
@@ -182,5 +226,5 @@ export default function MyMeals({ myId, users, apartments, mode }) {
         <MealEditor mealId={selectedMealId} onClose={() => setSelectedMealId(null)} />
       )}
     </div>
-  )
+  );
 }
