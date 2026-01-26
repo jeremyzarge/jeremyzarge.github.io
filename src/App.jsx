@@ -3,8 +3,6 @@ import { useEffect, useState } from "react";
 import firebaseClient, { rtdb, ensureUserNumericMapping, createNumericApartmentId } from "./firebaseClient.js";
 import { ref, get } from "firebase/database";
 import ProfileSetup from "./profileSetup.jsx";
-import AddMealForm from "./components/AddMealForm.jsx";
-import MealList from "./components/MealList.jsx";
 import CreateMeal from "./components/CreateMeal.jsx";
 import MyMeals from "./components/MyMeals.jsx";
 import { createOrUpdateUserNumeric, getAllUsersNumeric, getMealsForNumericUser, recordMealNumeric } from "./index.js";

@@ -29,14 +29,11 @@ export default function MyMeals({ myId, users, apartments, mode }) {
 
   const filteredMeals = useMemo(() => {
     return mealEvents
-      // ⭐️ NEW: Only show meals the current user is part of
       .filter(m => {
         const isHost = m.hosts && m.hosts[myId];
         const isGuest = m.guests && m.guests[myId];
-        return isHost || isGuest;  // user must be host or guest
+        return isHost || isGuest;
       })
-
-      // existing filters
       .filter((m) => {
         const mealDate = new Date(m.datetime);
         const now = new Date();
@@ -63,7 +60,6 @@ export default function MyMeals({ myId, users, apartments, mode }) {
 
         return true;
       })
-
       .sort((a, b) => {
         switch (sortBy) {
           case "date_asc": return new Date(a.datetime) - new Date(b.datetime);
@@ -97,7 +93,6 @@ export default function MyMeals({ myId, users, apartments, mode }) {
         gap: 12,
         marginBottom: 16
       }}>
-
         <input
           placeholder="Search title..."
           value={searchText}
@@ -128,7 +123,6 @@ export default function MyMeals({ myId, users, apartments, mode }) {
           ))}
         </select>
 
-        {/* ⭐️ RENAMED: "Filter by Role" */}
         <select value={hostGuestFilter} onChange={(e) => setHostGuestFilter(e.target.value)}
                 style={{ padding: 10, borderRadius: 8, border: "1px solid #e5e7eb", background: "#d1fae5", color: "#065f46" }}>
           <option value="">-- Filter by Role --</option>
@@ -155,7 +149,7 @@ export default function MyMeals({ myId, users, apartments, mode }) {
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
           <thead style={{ background: "#fef3c7" }}>
             <tr>
-              {["Title", "Date", "Hosts", "Guests", "Apartment", "Role", "Edit"].map(header => (
+              {["Title", "Date", "Hosts", "Guests", "Apartment", "Role"].map(header => (
                 <th key={header} style={{ padding: "12px 8px", textAlign: "left", color: "#78350f", fontWeight: 600 }}>
                   {header}
                 </th>
@@ -166,7 +160,7 @@ export default function MyMeals({ myId, users, apartments, mode }) {
           <tbody>
             {filteredMeals.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ padding: 12, textAlign: "center", color: "#78350f" }}>
+                <td colSpan={6} style={{ padding: 12, textAlign: "center", color: "#78350f" }}>
                   No meals match the filters.
                 </td>
               </tr>
@@ -191,7 +185,8 @@ export default function MyMeals({ myId, users, apartments, mode }) {
 
               return (
                 <tr key={m.id}
-                    style={{ borderBottom: "1px solid #fde68a", transition: "background 0.2s" }}
+                    style={{ borderBottom: "1px solid #fde68a", transition: "background 0.2s", cursor: "pointer" }}
+                    onClick={() => setSelectedMealId(m.id)}
                     onMouseEnter={e => e.currentTarget.style.background = "#fef3c7"}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                   <td style={{ padding: 12 }}>{m.title}</td>
@@ -208,12 +203,6 @@ export default function MyMeals({ myId, users, apartments, mode }) {
                       fontSize: 12,
                       fontWeight: 600
                     }}>{role}</span>
-                  </td>
-                  <td style={{ padding: 12 }}>
-                    <button onClick={() => setSelectedMealId(m.id)}
-                            style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: "#9333ea", color: "white", cursor: "pointer" }}>
-                      Edit
-                    </button>
                   </td>
                 </tr>
               );
