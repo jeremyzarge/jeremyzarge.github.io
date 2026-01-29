@@ -1,4 +1,26 @@
-export default function MealList({ meals, otherUsers, showApartment, apartmentMode }) {
+import { formatNumber } from "../utils";
+
+interface MealListProps {
+  meals: Record<string, number>;
+  otherUsers: Array<{
+    id: string;
+    first_name: string;
+    last_name: string;
+    apartment?: { id: string; name: string; address: string };
+  }>;
+  showApartment?: boolean;
+  apartmentMode?: boolean;
+}
+
+/**
+ * Displays a list/table of users or apartments with meal balances
+ */
+export default function MealList({
+  meals,
+  otherUsers,
+  showApartment,
+  apartmentMode,
+}: MealListProps) {
   return (
     <div
       style={{
@@ -14,8 +36,12 @@ export default function MealList({ meals, otherUsers, showApartment, apartmentMo
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr style={{ textAlign: "left", borderBottom: "2px solid #80deea" }}>
-            <th style={{ padding: "12px 8px" }}>{apartmentMode ? "Apartment" : "User"}</th>
-            {showApartment && !apartmentMode && <th style={{ padding: "12px 8px" }}>Apartment</th>}
+            <th style={{ padding: "12px 8px" }}>
+              {apartmentMode ? "Apartment" : "User"}
+            </th>
+            {showApartment && !apartmentMode && (
+              <th style={{ padding: "12px 8px" }}>Apartment</th>
+            )}
             <th style={{ padding: "12px 8px" }}>Balance</th>
           </tr>
         </thead>
@@ -28,11 +54,13 @@ export default function MealList({ meals, otherUsers, showApartment, apartmentMo
                 transition: "background 0.2s",
               }}
             >
-              <td style={{ padding: 12 }}>{u.first_name} {u.last_name}</td>
+              <td style={{ padding: 12 }}>
+                {u.first_name} {u.last_name}
+              </td>
               {showApartment && !apartmentMode && (
                 <td style={{ padding: 12 }}>{u.apartment?.name ?? "-"}</td>
               )}
-              <td style={{ padding: 12 }}>{meals[u.id] ?? 0}</td>
+              <td style={{ padding: 12 }}>{formatNumber(meals[u.id] ?? 0)}</td>
             </tr>
           ))}
         </tbody>
