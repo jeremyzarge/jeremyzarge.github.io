@@ -154,10 +154,10 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
   // Check if current user is a host (in create mode, user can always edit)
   const isHost = useMemo(() => {
     if (isCreateMode) return true; // Creator can always edit
-    if (!meal || !authUser) return false;
-    const participant = meal.participants[authUser.uid];
+    if (!meal || !currentUserId) return false;
+    const participant = meal.participants[currentUserId];
     return participant && participant.role === "host";
-  }, [meal, authUser, isCreateMode]);
+  }, [meal, currentUserId, isCreateMode]);
 
   // Check if meal is in the past
   const isPastMeal = useMemo(() => {
@@ -469,6 +469,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
                     width: "100%",
                     fontWeight: 600,
                     fontSize: "1rem",
+                    fontFamily: "Inter, sans-serif",
                   }}
                 />
               </div>
@@ -489,6 +490,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
                     width: "100%",
                     fontWeight: 600,
                     fontSize: "1rem",
+                    fontFamily: "Inter, sans-serif",
                   }}
                 >
                   <option value="">-- Select host apartment --</option>
@@ -598,6 +600,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
                       fontWeight: 600,
                       fontSize: "0.95rem",
                       background: "white",
+                      fontFamily: "Inter, sans-serif",
                     }}
                   >
                     <option value="">-- Select user --</option>
@@ -748,6 +751,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
                                 fontWeight: 600,
                                 fontSize: "0.9rem",
                                 minWidth: 120,
+                                fontFamily: "Inter, sans-serif",
                               }}
                             >
                               <option value="none">None</option>
@@ -770,8 +774,9 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
                                 borderRadius: 8,
                                 border: "2px solid #d1d5db",
                                 width: "100%",
-                                fontWeight: 500,
+                                fontWeight: 600,
                                 fontSize: "0.9rem",
+                                fontFamily: "Inter, sans-serif",
                               }}
                             />
                           </td>
@@ -831,28 +836,47 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
 
         {activeTab === "messages" && (
           <div style={{ marginTop: 12 }}>
-            <h4>Messages</h4>
+            <h4 style={{ marginBottom: 16, fontWeight: 800, fontSize: "1.05rem", color: "#374151" }}>
+              💬 Messages
+            </h4>
             <div
               style={{
-                maxHeight: 200,
+                maxHeight: 280,
                 overflowY: "auto",
-                background: "#f3f4f6",
-                padding: 8,
-                borderRadius: 6,
-                marginBottom: 8,
+                background: "linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%)",
+                padding: 16,
+                borderRadius: 12,
+                marginBottom: 12,
+                border: "2px solid #e5e7eb",
               }}
             >
               {Object.entries(meal.messages).length === 0 ? (
-                <div style={{ color: "#6b7280" }}>No messages yet</div>
+                <div style={{ color: "#9ca3af", textAlign: "center", fontWeight: 600, padding: 20 }}>
+                  No messages yet. Start the conversation!
+                </div>
               ) : (
                 Object.entries(meal.messages).map(([id, msg]) => {
                   const user = users.find((u) => u.id === msg.user);
                   return (
-                    <div key={id} style={{ marginBottom: 4 }}>
-                      <strong>{user ? user.first_name : msg.user}:</strong> {msg.text}
-                      <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 8 }}>
+                    <div
+                      key={id}
+                      style={{
+                        marginBottom: 12,
+                        padding: "10px 14px",
+                        background: "white",
+                        borderRadius: 10,
+                        boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, color: "#10b981", marginBottom: 4 }}>
+                        {user ? `${user.first_name} ${user.last_name}` : msg.user}
+                      </div>
+                      <div style={{ fontWeight: 500, color: "#374151", fontFamily: "Inter, sans-serif" }}>
+                        {msg.text}
+                      </div>
+                      <div style={{ fontSize: "0.75rem", color: "#9ca3af", marginTop: 6 }}>
                         {new Date(msg.timestamp).toLocaleString()}
-                      </span>
+                      </div>
                     </div>
                   );
                 })
@@ -982,30 +1006,39 @@ function MessageInput({
   };
 
   return (
-    <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+    <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
       <input
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && !sending && handleSend()}
-        placeholder="Type a message"
+        placeholder="Type a message..."
         disabled={sending}
         style={{
           flex: 1,
-          padding: 6,
-          borderRadius: 6,
-          border: "1px solid #d1d5db",
+          padding: "12px 16px",
+          borderRadius: 12,
+          border: "2px solid #d1d5db",
+          fontWeight: 600,
+          fontSize: "0.95rem",
+          fontFamily: "Inter, sans-serif",
         }}
       />
       <button
         onClick={handleSend}
         disabled={!text.trim() || sending}
         style={{
-          padding: "6px 12px",
-          borderRadius: 6,
+          padding: "12px 24px",
+          borderRadius: 12,
           border: "none",
-          background: !text.trim() || sending ? "#9ca3af" : "#3b82f6",
+          background: !text.trim() || sending
+            ? "#d1d5db"
+            : "linear-gradient(135deg, #10b981 0%, #059669 100%)",
           color: "white",
           cursor: !text.trim() || sending ? "not-allowed" : "pointer",
+          fontWeight: 700,
+          fontSize: "0.95rem",
+          fontFamily: "Inter, sans-serif",
+          boxShadow: !text.trim() || sending ? "none" : "0 4px 12px rgba(16, 185, 129, 0.3)",
         }}
       >
         {sending ? "Sending…" : "Send"}

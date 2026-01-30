@@ -225,55 +225,106 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
         )}
 
         <SectionTitle text="What can you bring?" />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
           {foodOptions.map((item) => (
-            <label key={item.key} style={checkRowStyle}>
-              <input
-                type="checkbox"
-                checked={canBring[item.key]}
-                onChange={() => toggleCanBring(item.key)}
-              />
-              {item.label}
-            </label>
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => toggleCanBring(item.key)}
+              style={{
+                padding: "10px 18px",
+                borderRadius: 50,
+                border: "none",
+                background: canBring[item.key]
+                  ? "linear-gradient(135deg, #10b981 0%, #059669 100%)"
+                  : "#f3f4f6",
+                color: canBring[item.key] ? "white" : "#6b7280",
+                fontWeight: 700,
+                fontSize: "0.95rem",
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+                boxShadow: canBring[item.key] ? "0 4px 12px rgba(16, 185, 129, 0.3)" : "none",
+                fontFamily: "Inter, sans-serif",
+              }}
+            >
+              {canBring[item.key] ? "✓ " : ""}{item.label}
+            </button>
           ))}
         </div>
 
         <SectionTitle text="Allergies / Dietary Restrictions" />
-        {allergyPresets.map((a) => (
-          <label key={a.key} style={checkRowStyle}>
-            <input
-              type="checkbox"
-              checked={allergies[a.key]}
-              onChange={() => toggleAllergy(a.key)}
-            />
-            {a.label}
-          </label>
-        ))}
-
-        <div style={{ marginTop: 10 }}>
-          <input
-            placeholder="Add another allergy..."
-            value={customAllergyInput}
-            onChange={(e) => setCustomAllergyInput(e.target.value)}
-            style={inputStyle}
-          />
-          <button type="button" onClick={addCustomAllergy} style={primarySmallButton}>
-            Add Allergy
-          </button>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+          {allergyPresets.map((a) => (
+            <button
+              key={a.key}
+              type="button"
+              onClick={() => toggleAllergy(a.key)}
+              style={{
+                padding: "10px 18px",
+                borderRadius: 50,
+                border: "none",
+                background: allergies[a.key]
+                  ? "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)"
+                  : "#f3f4f6",
+                color: allergies[a.key] ? "white" : "#6b7280",
+                fontWeight: 700,
+                fontSize: "0.95rem",
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+                boxShadow: allergies[a.key] ? "0 4px 12px rgba(245, 158, 11, 0.3)" : "none",
+                fontFamily: "Inter, sans-serif",
+              }}
+            >
+              {allergies[a.key] ? "✓ " : ""}{a.label}
+            </button>
+          ))}
+          {/* Custom allergies as pills - click to remove */}
+          {allergies.custom.map((a) => (
+            <button
+              key={a}
+              type="button"
+              onClick={() => deleteCustomAllergy(a)}
+              style={{
+                padding: "10px 18px",
+                borderRadius: 50,
+                border: "none",
+                background: "linear-gradient(135deg, #ec4899 0%, #db2777 100%)",
+                color: "white",
+                fontWeight: 700,
+                fontSize: "0.95rem",
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+                boxShadow: "0 4px 12px rgba(236, 72, 153, 0.3)",
+                fontFamily: "Inter, sans-serif",
+              }}
+            >
+              ✕ {a}
+            </button>
+          ))}
         </div>
 
-        {allergies.custom.length > 0 && (
-          <ul style={{ marginTop: 10, paddingLeft: 0 }}>
-            {allergies.custom.map((a) => (
-              <li key={a} style={customAllergyItem}>
-                {a}
-                <button type="button" onClick={() => deleteCustomAllergy(a)} style={deleteButton}>
-                  ✕
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+          <input
+            placeholder="Add custom allergy..."
+            value={customAllergyInput}
+            onChange={(e) => setCustomAllergyInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addCustomAllergy())}
+            style={{ ...inputStyle, flex: 1 }}
+          />
+          <button
+            type="button"
+            onClick={addCustomAllergy}
+            disabled={!customAllergyInput.trim()}
+            style={{
+              ...primarySmallButton,
+              marginTop: 0,
+              opacity: customAllergyInput.trim() ? 1 : 0.5,
+              cursor: customAllergyInput.trim() ? "pointer" : "not-allowed",
+            }}
+          >
+            + Add
+          </button>
+        </div>
 
         <button
           type="submit"
@@ -310,15 +361,9 @@ const inputStyle: React.CSSProperties = {
   border: "2px solid #e5e7eb",
   fontSize: "1rem",
   width: "100%",
-  fontWeight: 500,
+  fontWeight: 600,
   transition: "all 0.2s ease",
-};
-
-const checkRowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  padding: "6px 0",
+  fontFamily: "Inter, sans-serif",
 };
 
 const primarySmallButton: React.CSSProperties = {
@@ -332,30 +377,6 @@ const primarySmallButton: React.CSSProperties = {
   cursor: "pointer",
   boxShadow: "0 4px 12px rgba(16, 185, 129, 0.3)",
   transition: "all 0.2s ease",
-};
-
-const deleteButton: React.CSSProperties = {
-  background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
-  border: "none",
-  borderRadius: 8,
-  color: "white",
-  padding: "4px 10px",
-  cursor: "pointer",
-  fontWeight: 600,
-  fontSize: "0.9rem",
-};
-
-const customAllergyItem: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  background: "linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%)",
-  padding: "10px 14px",
-  borderRadius: 10,
-  marginBottom: 8,
-  fontSize: "0.95rem",
-  alignItems: "center",
-  fontWeight: 600,
-  border: "2px solid #f9a8d4",
 };
 
 function SectionTitle({ text }: { text: string }) {
