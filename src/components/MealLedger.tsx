@@ -20,6 +20,7 @@ export default function MealLedger({ currentUserId }: MealLedgerProps) {
   const [meals, setMeals] = useState<Record<string, number> | null>(null);
   const [users, setUsers] = useState<UserWithApartment[] | null>(null);
   const [apartments, setApartments] = useState<Apartment[] | null>(null);
+  const [currentUserApartmentId, setCurrentUserApartmentId] = useState<string | null>(null);
   const [view, setView] = useState<"users" | "apartments">("users");
 
   // Subscribe to real-time meal balance updates
@@ -46,6 +47,12 @@ export default function MealLedger({ currentUserId }: MealLedgerProps) {
 
       setApartments(allApartments);
 
+      // Find current user's apartment
+      const currentUser = allUsers.find((u) => u.id === currentUserId);
+      if (currentUser?.apartment) {
+        setCurrentUserApartmentId(currentUser.apartment);
+      }
+
       // Filter out current user and attach apartment data
       const otherUsers = allUsers
         .filter((user) => user.id !== currentUserId)
@@ -64,15 +71,17 @@ export default function MealLedger({ currentUserId }: MealLedgerProps) {
     return <div style={{ padding: 20 }}>Loading Meal Ledger…</div>;
   }
 
-  // Calculate apartment average balances
-  const apartmentData: ApartmentWithData[] = apartments.map((apt) => {
-    const members = users.filter((u) => u.apartment?.id === apt.id);
-    const avgBalance =
-      members.length > 0
-        ? members.reduce((sum, u) => sum + (meals[u.id] ?? 0), 0) / members.length
-        : 0;
-    return { ...apt, avgBalance };
-  });
+  // Calculate apartment average balances (excluding current user's apartment)
+  const apartmentData: ApartmentWithData[] = apartments
+    .filter((apt) => apt.id !== currentUserApartmentId) // Filter out own apartment
+    .map((apt) => {
+      const members = users.filter((u) => u.apartment?.id === apt.id);
+      const avgBalance =
+        members.length > 0
+          ? members.reduce((sum, u) => sum + (meals[u.id] ?? 0), 0) / members.length
+          : 0;
+      return { ...apt, avgBalance };
+    });
 
   return (
     <div style={{ marginBottom: 20 }}>

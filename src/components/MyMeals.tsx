@@ -179,9 +179,10 @@ export default function MyMeals({ myId, users, apartments, mode, authUser }: MyM
               border: "2px solid #fde68a",
               background: "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)",
               color: "#78350f",
-              fontWeight: 600,
+              fontWeight: 700,
               fontSize: "0.95rem",
               transition: "all 0.2s ease",
+              fontFamily: "Inter, sans-serif",
             }}
           />
 
@@ -194,9 +195,11 @@ export default function MyMeals({ myId, users, apartments, mode, authUser }: MyM
               border: "2px solid #93c5fd",
               background: "linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)",
               color: "#1e3a8a",
-              fontWeight: 600,
+              fontWeight: 700,
               fontSize: "0.95rem",
               transition: "all 0.2s ease",
+              fontFamily: "Inter, sans-serif",
+              cursor: "pointer",
             }}
           >
             <option value="">👤 All Users</option>
@@ -216,9 +219,11 @@ export default function MyMeals({ myId, users, apartments, mode, authUser }: MyM
               border: "2px solid #7dd3fc",
               background: "linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)",
               color: "#0c4a6e",
-              fontWeight: 600,
+              fontWeight: 700,
               fontSize: "0.95rem",
               transition: "all 0.2s ease",
+              fontFamily: "Inter, sans-serif",
+              cursor: "pointer",
             }}
           >
             <option value="">🏠 All Apartments</option>
@@ -238,9 +243,11 @@ export default function MyMeals({ myId, users, apartments, mode, authUser }: MyM
               border: "2px solid #6ee7b7",
               background: "linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)",
               color: "#065f46",
-              fontWeight: 600,
+              fontWeight: 700,
               fontSize: "0.95rem",
               transition: "all 0.2s ease",
+              fontFamily: "Inter, sans-serif",
+              cursor: "pointer",
             }}
           >
             <option value="">🎭 All Roles</option>
@@ -257,9 +264,11 @@ export default function MyMeals({ myId, users, apartments, mode, authUser }: MyM
               border: "2px solid #c4b5fd",
               background: "linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%)",
               color: "#5b21b6",
-              fontWeight: 600,
+              fontWeight: 700,
               fontSize: "0.95rem",
               transition: "all 0.2s ease",
+              fontFamily: "Inter, sans-serif",
+              cursor: "pointer",
             }}
           >
             <option value="date_desc">📅 Date ↓</option>

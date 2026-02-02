@@ -41,13 +41,13 @@ export default function ProfileEditor({
   const [customAllergyInput, setCustomAllergyInput] = useState("");
 
   const foodOptions: Array<{ key: keyof CanBring; label: string }> = [
-    { key: "drinks", label: "Drinks" },
-    { key: "dessert", label: "Dessert" },
-    { key: "salad", label: "Salad" },
-    { key: "main_dish", label: "Main Dish" },
-    { key: "snacks", label: "Snacks" },
-    { key: "sides", label: "Sides" },
-    { key: "utensils", label: "Utensils" },
+    { key: "drinks", label: "🥤 Drinks" },
+    { key: "dessert", label: "🍰 Dessert" },
+    { key: "salad", label: "🥗 Salad" },
+    { key: "main_dish", label: "🍝 Main Dish" },
+    { key: "snacks", label: "🍿 Snacks" },
+    { key: "sides", label: "🥔 Sides" },
+    { key: "utensils", label: "🍴 Utensils" },
   ];
 
   const allergyPresets: Array<{ key: keyof Omit<Allergies, "custom">; label: string }> = [

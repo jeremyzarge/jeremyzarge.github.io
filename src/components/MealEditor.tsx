@@ -6,6 +6,75 @@ import { createMeal } from "../index";
 import type { User } from "firebase/auth";
 import type { Meal, MealParticipant, UserWithId, Apartment } from "../types";
 
+/** Food emoji and label mapping */
+const foodDisplayMap: Record<string, { emoji: string; label: string }> = {
+  // Database food options
+  none: { emoji: "➖", label: "None" },
+  challah: { emoji: "🍞", label: "Challah" },
+  dessert: { emoji: "🍰", label: "Dessert" },
+  dips: { emoji: "🫕", label: "Dips" },
+  dip: { emoji: "🫕", label: "Dips" },
+  "grape juice": { emoji: "🍇", label: "Grape Juice" },
+  grapejuice: { emoji: "🍇", label: "Grape Juice" },
+  grape_juice: { emoji: "🍇", label: "Grape Juice" },
+  main: { emoji: "🍝", label: "Main" },
+  sides: { emoji: "🥔", label: "Sides" },
+  side: { emoji: "🥔", label: "Sides" },
+  vegetable: { emoji: "🥦", label: "Vegetable" },
+  vegetables: { emoji: "🥦", label: "Vegetables" },
+  // Profile food options (for compatibility)
+  drinks: { emoji: "🥤", label: "Drinks" },
+  drink: { emoji: "🥤", label: "Drinks" },
+  salad: { emoji: "🥗", label: "Salad" },
+  main_dish: { emoji: "🍝", label: "Main Dish" },
+  "main dish": { emoji: "🍝", label: "Main Dish" },
+  maindish: { emoji: "🍝", label: "Main Dish" },
+  snacks: { emoji: "🍿", label: "Snacks" },
+  snack: { emoji: "🍿", label: "Snacks" },
+  utensils: { emoji: "🍴", label: "Utensils" },
+  utensil: { emoji: "🍴", label: "Utensils" },
+};
+
+/** Format a food key into a display string with emoji */
+const formatFood = (food: string): string => {
+  // Normalize: lowercase, trim, remove extra spaces
+  const normalizedKey = food.toLowerCase().trim();
+
+  // Try exact match first
+  if (foodDisplayMap[normalizedKey]) {
+    const mapped = foodDisplayMap[normalizedKey];
+    return `${mapped.emoji} ${mapped.label}`;
+  }
+
+  // Try with underscores replaced by spaces
+  const spacedKey = normalizedKey.replace(/_/g, " ");
+  if (foodDisplayMap[spacedKey]) {
+    const mapped = foodDisplayMap[spacedKey];
+    return `${mapped.emoji} ${mapped.label}`;
+  }
+
+  // Try with spaces replaced by underscores
+  const underscoredKey = normalizedKey.replace(/\s+/g, "_");
+  if (foodDisplayMap[underscoredKey]) {
+    const mapped = foodDisplayMap[underscoredKey];
+    return `${mapped.emoji} ${mapped.label}`;
+  }
+
+  // Try with all spaces/underscores removed (e.g., "maindish")
+  const compactKey = normalizedKey.replace(/[\s_-]+/g, "");
+  if (foodDisplayMap[compactKey]) {
+    const mapped = foodDisplayMap[compactKey];
+    return `${mapped.emoji} ${mapped.label}`;
+  }
+
+  // For unknown foods, capitalize nicely with generic emoji
+  const label = food
+    .split(/[_\s]+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+  return `🍽️ ${label}`;
+};
+
 interface MealEditorProps {
   mealId?: string | null; // Optional - if not provided, create mode
   onClose?: () => void;
@@ -22,6 +91,7 @@ type MealWithId = Meal & { id: string };
 export default function MealEditor({ mealId, onClose, onCreated, authUser, currentUserId }: MealEditorProps) {
   const isCreateMode = !mealId;
   const [meal, setMeal] = useState<Meal | null>(null);
+  const [originalMeal, setOriginalMeal] = useState<Meal | null>(null); // Track original for change detection
   const [users, setUsers] = useState<UserWithId[]>([]);
   const [apartments, setApartments] = useState<Apartment[]>([]);
   const [foods, setFoods] = useState<string[]>([]);
@@ -38,19 +108,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
 
       // In create mode, initialize with default values
       if (isCreateMode) {
-        const defaultMeal: Meal = {
-          title: "",
-          host_apartment_id: "",
-          participants: {},
-          datetime: new Date(Date.now() + 3600000).toISOString(), // 1 hour from now
-          created_at: new Date().toISOString(),
-          instructions: "",
-          allowGuestsFoodSelection: false,
-          messages: {},
-        };
-        setMeal(defaultMeal);
-
-        // Load users, apartments, and foods
+        // Load users, apartments, and foods first
         const [usersData, apartmentsData] = await Promise.all([
           fetchAllUsers(),
           fetchAllApartments(),
@@ -63,6 +121,33 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
         const foodsSnap = await get(ref(rtdb, "food"));
         const foodKeys = foodsSnap.exists() ? Object.keys(foodsSnap.val()) : [];
         setFoods(foodKeys);
+
+        // Find creator's apartment to set as default host apartment
+        const creator = usersData.find((u) => u.id === currentUserId);
+        const creatorApartment = creator?.apartment || "";
+
+        // Auto-add creator as a host participant
+        const initialParticipants: Record<string, MealParticipant> = {};
+        if (currentUserId) {
+          initialParticipants[currentUserId] = {
+            food: "none",
+            specifics: "",
+            role: "host",
+          };
+        }
+
+        const defaultMeal: Meal = {
+          title: "",
+          host_apartment_id: creatorApartment,
+          participants: initialParticipants,
+          datetime: new Date(Date.now() + 3600000).toISOString(), // 1 hour from now
+          created_at: new Date().toISOString(),
+          instructions: "",
+          allowGuestsFoodSelection: false,
+          messages: {},
+        };
+        setMeal(defaultMeal);
+        setOriginalMeal(structuredClone(defaultMeal)); // Track original state
 
         setLoading(false);
         return;
@@ -130,6 +215,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
       };
 
       setMeal(normalizedMeal);
+      setOriginalMeal(structuredClone(normalizedMeal)); // Track original state
 
       // Load users, apartments, and foods
       const [usersData, apartmentsData] = await Promise.all([
@@ -164,6 +250,15 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
     if (!meal) return false;
     return new Date(meal.datetime) < new Date();
   }, [meal]);
+
+  // Check if meal has unsaved changes (compare with original, excluding messages)
+  const hasChanges = useMemo(() => {
+    if (!meal || !originalMeal) return false;
+    // Compare relevant fields (exclude messages as they save immediately)
+    const current = { ...meal, messages: {} };
+    const original = { ...originalMeal, messages: {} };
+    return JSON.stringify(current) !== JSON.stringify(original);
+  }, [meal, originalMeal]);
 
   // Current user ID (numeric)
   const currentUserNumericId = useMemo(() => {
@@ -213,23 +308,41 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
   };
 
   /**
+   * Check if a user is a resident of the host apartment
+   */
+  const isResidentOfHostApartment = (userId: string): boolean => {
+    if (!meal) return false;
+    const user = users.find((u) => u.id === userId);
+    return user?.apartment === meal.host_apartment_id;
+  };
+
+  /**
    * Toggle participant role between host and guest (host authorization required)
+   * Note: Residents of the host apartment cannot be made guests
    */
   const toggleRole = (userId: string) => {
     if (!isHost || !meal) return;
 
+    const participant = meal.participants[userId];
+    if (!participant) return;
+
+    // If user is a resident of host apartment and currently a host, don't allow changing to guest
+    if (isResidentOfHostApartment(userId) && participant.role === "host") {
+      return; // Residents must remain hosts
+    }
+
     setMeal((prev) => {
       if (!prev) return prev;
-      const participant = prev.participants[userId];
-      if (!participant) return prev;
+      const p = prev.participants[userId];
+      if (!p) return prev;
 
       return {
         ...prev,
         participants: {
           ...prev.participants,
           [userId]: {
-            ...participant,
-            role: participant.role === "host" ? "guest" : "host",
+            ...p,
+            role: p.role === "host" ? "guest" : "host",
           },
         },
       };
@@ -426,7 +539,10 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
 
         {/* Tabs */}
         <div style={{ display: "flex", gap: 10, marginBottom: 24, background: "#f3f4f6", padding: 6, borderRadius: 50, width: "fit-content" }}>
-          {(isCreateMode ? ["info", "participants"] : ["info", "participants", "messages"]).map((tab) => (
+          {(isCreateMode
+            ? (["info", "participants"] as const)
+            : (["info", "participants", "messages"] as const)
+          ).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -750,14 +866,14 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
                                 border: "2px solid #d1d5db",
                                 fontWeight: 600,
                                 fontSize: "0.9rem",
-                                minWidth: 120,
+                                minWidth: 140,
                                 fontFamily: "Inter, sans-serif",
                               }}
                             >
-                              <option value="none">None</option>
+                              <option value="none">{formatFood("none")}</option>
                               {foods.map((f) => (
                                 <option key={f} value={f}>
-                                  {f}
+                                  {formatFood(f)}
                                 </option>
                               ))}
                             </select>
@@ -781,28 +897,36 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
                             />
                           </td>
                           <td style={{ padding: "12px" }}>
-                            <button
-                              type="button"
-                              onClick={() => toggleRole(userId)}
-                              disabled={!isHost || isPastMeal}
-                              style={{
-                                padding: "6px 14px",
-                                borderRadius: 20,
-                                border: "none",
-                                background:
-                                  participant.role === "host"
-                                    ? "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)"
-                                    : "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-                                color: "white",
-                                fontSize: "0.85rem",
-                                fontWeight: 700,
-                                cursor: isHost && !isPastMeal ? "pointer" : "not-allowed",
-                                boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-                                opacity: isHost && !isPastMeal ? 1 : 0.6,
-                              }}
-                            >
-                              {participant.role === "host" ? "Host" : "Guest"}
-                            </button>
+                            {(() => {
+                              const isResident = isResidentOfHostApartment(userId);
+                              const canToggle = isHost && !isPastMeal && !(isResident && participant.role === "host");
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleRole(userId)}
+                                  disabled={!canToggle}
+                                  title={isResident && participant.role === "host" ? "Residents of host apartment must be hosts" : ""}
+                                  style={{
+                                    padding: "6px 14px",
+                                    borderRadius: 20,
+                                    border: "none",
+                                    background:
+                                      participant.role === "host"
+                                        ? "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)"
+                                        : "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                                    color: "white",
+                                    fontSize: "0.85rem",
+                                    fontWeight: 700,
+                                    cursor: canToggle ? "pointer" : "not-allowed",
+                                    boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+                                    opacity: canToggle ? 1 : 0.6,
+                                  }}
+                                >
+                                  {participant.role === "host" ? "Host" : "Guest"}
+                                  {isResident && participant.role === "host" ? " 🏠" : ""}
+                                </button>
+                              );
+                            })()}
                           </td>
                           {isHost && !isPastMeal && (
                             <td style={{ padding: "12px" }}>
@@ -925,38 +1049,44 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
                     background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
                     color: "white",
                     cursor: "pointer",
-                    fontWeight: 700,
+                    fontWeight: 800,
                     fontSize: "1rem",
                     boxShadow: "0 4px 12px rgba(239, 68, 68, 0.3)",
                     transition: "all 0.2s ease",
                   }}
                 >
-                  Delete
+                  Delete Meal
                 </button>
               )}
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                style={{
-                  padding: "12px 32px",
-                  borderRadius: 12,
-                  border: "none",
-                  background: saving
-                    ? "#d1d5db"
-                    : "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-                  color: "white",
-                  cursor: saving ? "not-allowed" : "pointer",
-                  fontWeight: 800,
-                  fontSize: "1.05rem",
-                  boxShadow: saving ? "none" : "0 6px 16px rgba(16, 185, 129, 0.4)",
-                  transition: "all 0.2s ease",
-                  letterSpacing: "0.3px",
-                }}
-              >
-                {saving
-                  ? isCreateMode ? "Creating…" : "Saving…"
-                  : isCreateMode ? "Create Meal" : "Save Changes"}
-              </button>
+              {(() => {
+                // Save button is disabled if saving, or for edit mode: past meal or no changes
+                const isDisabled = saving || (!isCreateMode && (isPastMeal || !hasChanges));
+                return (
+                  <button
+                    onClick={handleSave}
+                    disabled={isDisabled}
+                    style={{
+                      padding: "12px 32px",
+                      borderRadius: 12,
+                      border: "none",
+                      background: isDisabled
+                        ? "#d1d5db"
+                        : "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                      color: "white",
+                      cursor: isDisabled ? "not-allowed" : "pointer",
+                      fontWeight: 800,
+                      fontSize: "1.05rem",
+                      boxShadow: isDisabled ? "none" : "0 6px 16px rgba(16, 185, 129, 0.4)",
+                      transition: "all 0.2s ease",
+                      letterSpacing: "0.3px",
+                    }}
+                  >
+                    {saving
+                      ? isCreateMode ? "Creating…" : "Saving…"
+                      : isCreateMode ? "Create Meal" : "Save Changes"}
+                  </button>
+                );
+              })()}
             </>
           )}
         </div>
