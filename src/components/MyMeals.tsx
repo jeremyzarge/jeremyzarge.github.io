@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { rtdb } from "../firebaseClient";
-import { ref, get } from "firebase/database";
+import { ref, get, set, remove, onValue } from "firebase/database";
 import { formatApartmentName } from "../utils";
 import type { User } from "firebase/auth";
 import type { Apartment, UserWithId, Meal, LegacyMeal } from "../types";
@@ -31,16 +31,19 @@ export default function MyMeals({ myId, users, apartments, mode, authUser }: MyM
   const [hostGuestFilter, setHostGuestFilter] = useState("");
   const [sortBy, setSortBy] = useState("date_desc");
 
+  // Real-time listener for meal events
   useEffect(() => {
-    async function loadMeals() {
-      setLoading(true);
-      const snap = await get(ref(rtdb, "meal_events"));
-      const data = snap.exists() ? snap.val() : {};
+    setLoading(true);
+    const mealsRef = ref(rtdb, "meal_events");
+
+    const unsubscribe = onValue(mealsRef, (snapshot) => {
+      const data = snapshot.exists() ? snapshot.val() : {};
       const list = Object.entries(data).map(([id, m]) => ({ id, ...(m as any) }));
       setMealEvents(list);
       setLoading(false);
-    }
-    loadMeals();
+    });
+
+    return () => unsubscribe();
   }, []);
 
   /**
@@ -85,6 +88,55 @@ export default function MyMeals({ myId, users, apartments, mode, authUser }: MyM
     return [];
   };
 
+  /**
+   * Helper to check if user has accepted their invitation
+   * Returns true for legacy meals (backward compatibility)
+   */
+  const isUserAccepted = (meal: MealWithId, userId: string): boolean => {
+    if ("participants" in meal && meal.participants?.[userId]) {
+      // Default to true for backward compatibility if field is missing
+      return meal.participants[userId].accepted ?? true;
+    }
+    // Legacy format - all participants are considered accepted
+    return true;
+  };
+
+  /**
+   * Accept an invitation - set accepted to true
+   */
+  const handleAcceptInvite = async (mealId: string) => {
+    try {
+      await set(ref(rtdb, `meal_events/${mealId}/participants/${myId}/accepted`), true);
+      // Reload meals to reflect change
+      const snap = await get(ref(rtdb, "meal_events"));
+      const data = snap.exists() ? snap.val() : {};
+      const list = Object.entries(data).map(([id, m]) => ({ id, ...(m as any) }));
+      setMealEvents(list);
+    } catch (err) {
+      console.error("Failed to accept invitation:", err);
+      alert("Failed to accept invitation");
+    }
+  };
+
+  /**
+   * Reject an invitation - remove participant from meal
+   */
+  const handleRejectInvite = async (mealId: string) => {
+    if (!window.confirm("Are you sure you want to reject this invitation?")) return;
+
+    try {
+      await remove(ref(rtdb, `meal_events/${mealId}/participants/${myId}`));
+      // Reload meals to reflect change
+      const snap = await get(ref(rtdb, "meal_events"));
+      const data = snap.exists() ? snap.val() : {};
+      const list = Object.entries(data).map(([id, m]) => ({ id, ...(m as any) }));
+      setMealEvents(list);
+    } catch (err) {
+      console.error("Failed to reject invitation:", err);
+      alert("Failed to reject invitation");
+    }
+  };
+
   const filteredMeals = useMemo(() => {
     return mealEvents
       .filter((m) => isUserInMeal(m, myId))
@@ -126,6 +178,26 @@ export default function MyMeals({ myId, users, apartments, mode, authUser }: MyM
         }
       });
   }, [mealEvents, searchText, selectedUser, selectedApartment, hostGuestFilter, sortBy, myId, mode]);
+
+  // Separate accepted vs invited meals (for upcoming view)
+  const { acceptedMeals, invitedMeals } = useMemo(() => {
+    if (mode !== "upcoming") {
+      return { acceptedMeals: filteredMeals, invitedMeals: [] };
+    }
+
+    const accepted: MealWithId[] = [];
+    const invited: MealWithId[] = [];
+
+    filteredMeals.forEach((m) => {
+      if (isUserAccepted(m, myId)) {
+        accepted.push(m);
+      } else {
+        invited.push(m);
+      }
+    });
+
+    return { acceptedMeals: accepted, invitedMeals: invited };
+  }, [filteredMeals, myId, mode]);
 
   if (loading) return <div style={{ padding: 20 }}>Loading meals...</div>;
 
@@ -279,6 +351,96 @@ export default function MyMeals({ myId, users, apartments, mode, authUser }: MyM
         </div>
       </div>
 
+      {/* Invitations Section - only in upcoming mode */}
+      {mode === "upcoming" && invitedMeals.length > 0 && (
+        <div
+          style={{
+            background: "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)",
+            padding: 20,
+            borderRadius: 16,
+            marginBottom: 20,
+            border: "3px solid #fbbf24",
+          }}
+        >
+          <h3
+            style={{
+              margin: "0 0 16px 0",
+              fontWeight: 800,
+              color: "#78350f",
+            }}
+          >
+            Pending Invitations ({invitedMeals.length})
+          </h3>
+          {invitedMeals.map((m) => {
+            const apt = apartments.find((a) => a.id === m.host_apartment_id);
+            const aptDisplay = apt ? formatApartmentName(apt) : "—";
+
+            return (
+              <div
+                key={m.id}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: 16,
+                  background: "white",
+                  borderRadius: 12,
+                  marginBottom: 8,
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: "1.1rem", color: "#374151" }}>
+                    {m.title}
+                  </div>
+                  <div style={{ fontSize: "0.9rem", color: "#6b7280" }}>
+                    {new Date(m.datetime).toLocaleString()} at {aptDisplay}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleAcceptInvite(m.id);
+                    }}
+                    style={{
+                      padding: "10px 20px",
+                      borderRadius: 10,
+                      border: "none",
+                      background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                      color: "white",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      boxShadow: "0 4px 12px rgba(16, 185, 129, 0.3)",
+                    }}
+                  >
+                    Accept
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRejectInvite(m.id);
+                    }}
+                    style={{
+                      padding: "10px 20px",
+                      borderRadius: 10,
+                      border: "none",
+                      background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
+                      color: "white",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      boxShadow: "0 4px 12px rgba(239, 68, 68, 0.3)",
+                    }}
+                  >
+                    Reject
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Table */}
       <div
         style={{
@@ -308,7 +470,7 @@ export default function MyMeals({ myId, users, apartments, mode, authUser }: MyM
           </thead>
 
           <tbody>
-            {filteredMeals.length === 0 ? (
+            {acceptedMeals.length === 0 ? (
               <tr>
                 <td
                   colSpan={4}
@@ -318,7 +480,7 @@ export default function MyMeals({ myId, users, apartments, mode, authUser }: MyM
                 </td>
               </tr>
             ) : (
-              filteredMeals.map((m) => {
+              acceptedMeals.map((m) => {
                 const apt = apartments.find((a) => a.id === m.host_apartment_id);
                 const aptDisplay = apt ? formatApartmentName(apt) : "—";
                 const role = getUserRole(m, myId);

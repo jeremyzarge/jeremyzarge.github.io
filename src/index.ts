@@ -132,16 +132,21 @@ export async function createMeal(mealObj: Meal): Promise<string> {
 /**
  * Updates the meal_matrix based on participant roles in a meal
  * Hosts get +1 for each guest, guests get -1 for each host
+ * Only counts accepted participants (invitations pending are excluded)
  * @param mealObj - Meal object with participants
  */
 export async function updateMealMatrixForMeal(mealObj: Meal): Promise<void> {
   const participants = mealObj.participants || {};
 
-  // Separate participants by role
+  // Separate participants by role - ONLY count accepted participants
   const hosts: string[] = [];
   const guests: string[] = [];
 
   for (const [userId, participant] of Object.entries(participants)) {
+    // Skip non-accepted participants (invitations pending)
+    // Use ?? true for backward compatibility with old data
+    if (!(participant.accepted ?? true)) continue;
+
     if (participant.role === "host") {
       hosts.push(userId);
     } else if (participant.role === "guest") {
@@ -184,24 +189,26 @@ export async function updateMealMatrixForMeal(mealObj: Meal): Promise<void> {
 export function convertLegacyMealToParticipants(legacyMeal: any): Meal {
   const participants: Record<string, MealParticipant> = {};
 
-  // Convert hosts
+  // Convert hosts - legacy participants are accepted by default
   if (legacyMeal.hosts) {
     for (const [userId, data] of Object.entries(legacyMeal.hosts)) {
       participants[userId] = {
         food: (data as any)?.food || "none",
         specifics: "",
         role: "host",
+        accepted: true,
       };
     }
   }
 
-  // Convert guests
+  // Convert guests - legacy participants are accepted by default
   if (legacyMeal.guests) {
     for (const [userId, data] of Object.entries(legacyMeal.guests)) {
       participants[userId] = {
         food: (data as any)?.food || "none",
         specifics: "",
         role: "guest",
+        accepted: true,
       };
     }
   }

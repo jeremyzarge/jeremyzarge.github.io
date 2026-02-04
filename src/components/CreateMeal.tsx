@@ -98,6 +98,7 @@ export default function CreateMeal({ onCreated, onCancel }: CreateMealProps) {
         food: "none",
         specifics: "",
         role: p.role,
+        accepted: p.role === "host", // Hosts auto-accept, guests need to accept
       };
     });
 

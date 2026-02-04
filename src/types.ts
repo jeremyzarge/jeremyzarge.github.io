@@ -41,6 +41,7 @@ export type MealParticipant = {
   food: string;
   specifics: string;
   role: "host" | "guest";
+  accepted: boolean;  // true = full participant, false = invited only
 };
 
 export type MealMessage = {

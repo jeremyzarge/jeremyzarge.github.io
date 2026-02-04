@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ref, get } from "firebase/database";
 import type { User } from "firebase/auth";
-import firebaseClient, { rtdb, ensureUserNumericMapping, createNumericApartmentId } from "./firebaseClient";
+import firebaseClient, { rtdb, ensureUserNumericMapping, createNumericApartmentId, loginWithGoogle } from "./firebaseClient";
 import { createOrUpdateUserNumeric } from "./index";
 import { fetchAllUsers, fetchAllApartments } from "./utils";
 import ProfileSetup from "./profileSetup";
@@ -171,10 +171,85 @@ export default function App() {
     return <div style={{ padding: 20 }}>Loading...</div>;
   }
 
-  if (needsProfile && authUser && myId) {
+  // Show login screen if not authenticated
+  if (!authUser) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          minHeight: "100vh",
+          padding: 20,
+        }}
+      >
+        <div
+          style={{
+            backgroundColor: "white",
+            padding: 40,
+            borderRadius: 20,
+            boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+            textAlign: "center",
+            maxWidth: 400,
+            width: "100%",
+            border: "4px solid transparent",
+            backgroundImage: "linear-gradient(white, white), linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)",
+            backgroundOrigin: "border-box",
+            backgroundClip: "padding-box, border-box",
+          }}
+        >
+          <h1
+            style={{
+              margin: 0,
+              marginBottom: 12,
+              fontWeight: 900,
+              background: "linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+              fontSize: "2.2rem",
+              letterSpacing: "-0.5px",
+            }}
+          >
+            VitePotLock
+          </h1>
+          <p style={{ color: "#6b7280", marginBottom: 24, fontSize: "1.05rem" }}>
+            Sign in to manage your Shabbat meals
+          </p>
+          <button
+            onClick={() => loginWithGoogle()}
+            style={{
+              padding: "14px 28px",
+              borderRadius: 12,
+              border: "none",
+              background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+              color: "white",
+              fontWeight: 700,
+              fontSize: "1.1rem",
+              cursor: "pointer",
+              boxShadow: "0 8px 20px rgba(102, 126, 234, 0.4)",
+              transition: "all 0.2s ease",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 10,
+              width: "100%",
+            }}
+          >
+            <span style={{ fontSize: "1.3rem" }}>G</span>
+            Sign in with Google
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Show profile setup if user is authenticated but needs to create profile
+  if (needsProfile && myId) {
     return <ProfileSetup user={authUser} onComplete={handleProfileComplete} />;
   }
 
+  // Show loading if we're still fetching profile data
   if (!profile || !myId) {
     return <div style={{ padding: 20 }}>Loading profile…</div>;
   }

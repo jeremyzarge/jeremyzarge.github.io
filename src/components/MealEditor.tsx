@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { ref, get, set, remove } from "firebase/database";
+import { ref, get, set, remove, onValue } from "firebase/database";
 import { rtdb } from "../firebaseClient";
 import { fetchAllUsers, fetchAllApartments, getAllergenCounts } from "../utils";
 import { createMeal } from "../index";
@@ -126,13 +126,14 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
         const creator = usersData.find((u) => u.id === currentUserId);
         const creatorApartment = creator?.apartment || "";
 
-        // Auto-add creator as a host participant
+        // Auto-add creator as a host participant (auto-accepted)
         const initialParticipants: Record<string, MealParticipant> = {};
         if (currentUserId) {
           initialParticipants[currentUserId] = {
             food: "none",
             specifics: "",
             role: "host",
+            accepted: true,
           };
         }
 
@@ -173,6 +174,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
               food: (data as any).food || "none",
               specifics: (data as any).specifics || "",
               role: "host",
+              accepted: true, // Legacy participants are accepted
             };
           }
         }
@@ -183,6 +185,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
               food: (data as any).food || "none",
               specifics: (data as any).specifics || "",
               role: "guest",
+              accepted: true, // Legacy participants are accepted
             };
           }
         }
@@ -237,6 +240,34 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
     loadData();
   }, [mealId]);
 
+  // Real-time listener for meal updates (edit mode only)
+  useEffect(() => {
+    if (isCreateMode || !mealId) return;
+
+    const mealRef = ref(rtdb, `meal_events/${mealId}`);
+    const unsubscribe = onValue(mealRef, (snapshot) => {
+      if (!snapshot.exists()) return;
+
+      const mealData = snapshot.val();
+
+      // Normalize meal data (handle legacy format)
+      const normalizedMeal: Meal = {
+        title: mealData.title || "",
+        host_apartment_id: mealData.host_apartment_id || "",
+        participants: mealData.participants || {},
+        datetime: mealData.datetime || new Date().toISOString(),
+        created_at: mealData.created_at || new Date().toISOString(),
+        instructions: mealData.instructions || "",
+        allowGuestsFoodSelection: mealData.allowGuestsFoodSelection || false,
+        messages: mealData.messages || {},
+      };
+
+      setMeal(normalizedMeal);
+    });
+
+    return () => unsubscribe();
+  }, [mealId, isCreateMode]);
+
   // Check if current user is a host (in create mode, user can always edit)
   const isHost = useMemo(() => {
     if (isCreateMode) return true; // Creator can always edit
@@ -268,6 +299,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
 
   /**
    * Add a participant to the meal (host authorization required)
+   * Hosts are auto-accepted, guests start as invited (accepted: false)
    */
   const addParticipant = () => {
     if (!isHost || !selectedUserId || !meal) return;
@@ -278,6 +310,8 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
 
     // Auto-determine role based on apartment
     const role = user.apartment === meal.host_apartment_id ? "host" : "guest";
+    // Hosts are auto-accepted, guests must accept the invitation
+    const accepted = role === "host";
 
     setMeal((prev) => {
       if (!prev) return prev;
@@ -285,7 +319,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
         ...prev,
         participants: {
           ...prev.participants,
-          [selectedUserId]: { food: "none", specifics: "", role },
+          [selectedUserId]: { food: "none", specifics: "", role, accepted },
         },
       };
     });
@@ -305,6 +339,49 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
       delete updated[userId];
       return { ...prev, participants: updated };
     });
+  };
+
+  /**
+   * Allow current user to leave the meal (remove themselves)
+   * Any participant can leave, but the last host cannot leave
+   */
+  const leaveMeal = async () => {
+    if (!currentUserId || !meal) return;
+    if (!(currentUserId in meal.participants)) return;
+
+    const myParticipant = meal.participants[currentUserId];
+
+    // Prevent last host from leaving
+    if (myParticipant?.role === "host") {
+      const otherAcceptedHosts = Object.entries(meal.participants)
+        .filter(([id, p]) => id !== currentUserId && p.role === "host" && (p.accepted ?? true));
+
+      if (otherAcceptedHosts.length === 0) {
+        alert("You cannot leave as the last host. Delete the meal or assign another host first.");
+        return;
+      }
+    }
+
+    if (!window.confirm("Are you sure you want to leave this meal?")) return;
+
+    // Update local state
+    setMeal((prev) => {
+      if (!prev) return prev;
+      const updated = { ...prev.participants };
+      delete updated[currentUserId];
+      return { ...prev, participants: updated };
+    });
+
+    // Save to database immediately and close
+    if (!isCreateMode && mealId) {
+      try {
+        await remove(ref(rtdb, `meal_events/${mealId}/participants/${currentUserId}`));
+        if (onClose) onClose();
+      } catch (err) {
+        console.error("Failed to leave meal:", err);
+        alert("Failed to leave meal");
+      }
+    }
   };
 
   /**
@@ -463,11 +540,14 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
     }
   };
 
-  // Calculate allergen counts for meal participants only
+  // Calculate allergen counts for accepted participants only
   const allergenCounts = useMemo(() => {
     if (!meal) return {};
-    const participantIds = Object.keys(meal.participants);
-    return getAllergenCounts(participantIds, users);
+    // Only count accepted participants (use ?? true for backward compatibility)
+    const acceptedParticipantIds = Object.entries(meal.participants)
+      .filter(([_, p]) => p.accepted ?? true)
+      .map(([id]) => id);
+    return getAllergenCounts(acceptedParticipantIds, users);
   }, [meal, users]);
 
   // Get users available to add (not already participants)
@@ -485,6 +565,15 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
       return { userId, participant, user };
     });
   }, [meal, users]);
+
+  // Separate accepted participants from invited (pending)
+  const acceptedParticipants = useMemo(() => {
+    return participantsWithInfo.filter(({ participant }) => participant.accepted ?? true);
+  }, [participantsWithInfo]);
+
+  const invitedParticipants = useMemo(() => {
+    return participantsWithInfo.filter(({ participant }) => !(participant.accepted ?? true));
+  }, [participantsWithInfo]);
 
   if (loading || !meal) {
     return <div style={{ padding: 20 }}>Loading meal editor…</div>;
@@ -751,10 +840,10 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
             )}
 
             <h4 style={{ marginBottom: 16, fontWeight: 800, fontSize: "1.05rem", color: "#374151" }}>
-              Participants ({participantsWithInfo.length})
+              Participants ({acceptedParticipants.length})
             </h4>
 
-            {participantsWithInfo.length === 0 ? (
+            {acceptedParticipants.length === 0 ? (
               <div
                 style={{
                   color: "#9ca3af",
@@ -839,7 +928,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
                     </tr>
                   </thead>
                   <tbody>
-                    {participantsWithInfo.map(({ userId, participant, user }) => {
+                    {acceptedParticipants.map(({ userId, participant, user }) => {
                       if (!user) return null;
 
                       return (
@@ -955,6 +1044,72 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
                 </table>
               </div>
             )}
+
+            {/* Invited (pending) participants section */}
+            {invitedParticipants.length > 0 && (
+              <div style={{ marginTop: 24 }}>
+                <h4 style={{ marginBottom: 16, fontWeight: 800, fontSize: "1.05rem", color: "#9ca3af" }}>
+                  Invited ({invitedParticipants.length})
+                </h4>
+                <div
+                  style={{
+                    background: "#f9fafb",
+                    borderRadius: 12,
+                    border: "2px solid #e5e7eb",
+                    padding: 16,
+                  }}
+                >
+                  {invitedParticipants.map(({ userId, user }) => (
+                    <div
+                      key={userId}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "10px 0",
+                        borderBottom: "1px solid #e5e7eb",
+                      }}
+                    >
+                      <span style={{ fontWeight: 600, color: "#374151" }}>
+                        {user?.first_name} {user?.last_name}
+                      </span>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <span
+                          style={{
+                            padding: "4px 12px",
+                            borderRadius: 20,
+                            background: "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)",
+                            color: "#92400e",
+                            fontSize: "0.8rem",
+                            fontWeight: 700,
+                          }}
+                        >
+                          Invited
+                        </span>
+                        {isHost && !isPastMeal && (
+                          <button
+                            type="button"
+                            onClick={() => removeParticipant(userId)}
+                            style={{
+                              padding: "6px 12px",
+                              borderRadius: 8,
+                              border: "none",
+                              background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
+                              color: "white",
+                              cursor: "pointer",
+                              fontWeight: 700,
+                              fontSize: "0.85rem",
+                            }}
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -963,59 +1118,78 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
             <h4 style={{ marginBottom: 16, fontWeight: 800, fontSize: "1.05rem", color: "#374151" }}>
               💬 Messages
             </h4>
-            <div
-              style={{
-                maxHeight: 280,
-                overflowY: "auto",
-                background: "linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%)",
-                padding: 16,
-                borderRadius: 12,
-                marginBottom: 12,
-                border: "2px solid #e5e7eb",
-              }}
-            >
-              {Object.entries(meal.messages).length === 0 ? (
-                <div style={{ color: "#9ca3af", textAlign: "center", fontWeight: 600, padding: 20 }}>
-                  No messages yet. Start the conversation!
-                </div>
-              ) : (
-                Object.entries(meal.messages).map(([id, msg]) => {
-                  const user = users.find((u) => u.id === msg.user);
-                  return (
-                    <div
-                      key={id}
-                      style={{
-                        marginBottom: 12,
-                        padding: "10px 14px",
-                        background: "white",
-                        borderRadius: 10,
-                        boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
-                      }}
-                    >
-                      <div style={{ fontWeight: 700, color: "#10b981", marginBottom: 4 }}>
-                        {user ? `${user.first_name} ${user.last_name}` : msg.user}
-                      </div>
-                      <div style={{ fontWeight: 500, color: "#374151", fontFamily: "Inter, sans-serif" }}>
-                        {msg.text}
-                      </div>
-                      <div style={{ fontSize: "0.75rem", color: "#9ca3af", marginTop: 6 }}>
-                        {new Date(msg.timestamp).toLocaleString()}
-                      </div>
+            {/* Check if current user is accepted - invited users cannot view messages */}
+            {currentUserId && meal.participants[currentUserId] && !(meal.participants[currentUserId].accepted ?? true) ? (
+              <div
+                style={{
+                  padding: 32,
+                  textAlign: "center",
+                  background: "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)",
+                  borderRadius: 12,
+                  color: "#92400e",
+                  fontWeight: 600,
+                  border: "2px solid #fbbf24",
+                }}
+              >
+                You must accept the invitation to view messages.
+              </div>
+            ) : (
+              <>
+                <div
+                  style={{
+                    maxHeight: 280,
+                    overflowY: "auto",
+                    background: "linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%)",
+                    padding: 16,
+                    borderRadius: 12,
+                    marginBottom: 12,
+                    border: "2px solid #e5e7eb",
+                  }}
+                >
+                  {Object.entries(meal.messages).length === 0 ? (
+                    <div style={{ color: "#9ca3af", textAlign: "center", fontWeight: 600, padding: 20 }}>
+                      No messages yet. Start the conversation!
                     </div>
-                  );
-                })
-              )}
-            </div>
-            {mealId && currentUserId && (
-              <MessageInput mealId={mealId} currentUserId={currentUserId} onMessageSent={() => {
-                // Reload meal to show new message
-                get(ref(rtdb, `meal_events/${mealId}`)).then((snap) => {
-                  if (snap.exists()) {
-                    const updatedMeal = snap.val() as Meal;
-                    setMeal(updatedMeal);
-                  }
-                });
-              }} />
+                  ) : (
+                    Object.entries(meal.messages).map(([id, msg]) => {
+                      const user = users.find((u) => u.id === msg.user);
+                      return (
+                        <div
+                          key={id}
+                          style={{
+                            marginBottom: 12,
+                            padding: "10px 14px",
+                            background: "white",
+                            borderRadius: 10,
+                            boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
+                          }}
+                        >
+                          <div style={{ fontWeight: 700, color: "#10b981", marginBottom: 4 }}>
+                            {user ? `${user.first_name} ${user.last_name}` : msg.user}
+                          </div>
+                          <div style={{ fontWeight: 500, color: "#374151", fontFamily: "Inter, sans-serif" }}>
+                            {msg.text}
+                          </div>
+                          <div style={{ fontSize: "0.75rem", color: "#9ca3af", marginTop: 6 }}>
+                            {new Date(msg.timestamp).toLocaleString()}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+                {mealId && currentUserId && (
+                  <MessageInput mealId={mealId} currentUserId={currentUserId} onMessageSent={() => {
+                    // Reload meal to show new message
+                    get(ref(rtdb, `meal_events/${mealId}`)).then((snap) => {
+                      if (snap.exists()) {
+                        const updatedMeal = snap.val() as Meal;
+                        setMeal(updatedMeal);
+                      }
+                    });
+                  }} />
+                )}
+              </>
             )}
           </div>
         )}
@@ -1037,6 +1211,26 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
           >
             Cancel
           </button>
+          {/* Leave Meal button - for any participant (not just hosts) */}
+          {!isCreateMode && currentUserId && meal.participants[currentUserId] && (meal.participants[currentUserId].accepted ?? true) && (
+            <button
+              onClick={leaveMeal}
+              style={{
+                padding: "12px 24px",
+                borderRadius: 12,
+                border: "none",
+                background: "linear-gradient(135deg, #f97316 0%, #ea580c 100%)",
+                color: "white",
+                cursor: "pointer",
+                fontWeight: 800,
+                fontSize: "1rem",
+                boxShadow: "0 4px 12px rgba(249, 115, 22, 0.3)",
+                transition: "all 0.2s ease",
+              }}
+            >
+              Leave Meal
+            </button>
+          )}
           {isHost && (
             <>
               {!isCreateMode && (

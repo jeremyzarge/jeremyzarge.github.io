@@ -53,9 +53,9 @@ export default function MealLedger({ currentUserId }: MealLedgerProps) {
         setCurrentUserApartmentId(currentUser.apartment);
       }
 
-      // Filter out current user and attach apartment data
+      // Filter out current user, placeholder users, and attach apartment data
       const otherUsers = allUsers
-        .filter((user) => user.id !== currentUserId)
+        .filter((user) => user.id !== currentUserId && user.first_name && !user.placeholder)
         .map((user) => ({
           ...user,
           apartment: allApartments.find((apt) => apt.id === user.apartment) || null,
