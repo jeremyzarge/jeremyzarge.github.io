@@ -11,12 +11,14 @@ export default function Tabs({ active, onChange }: TabsProps) {
     { id: "ledger", label: "Meal Ledger", color: "#667eea" },
     { id: "upcoming", label: "Upcoming Meals", color: "#10b981" },
     { id: "past", label: "Past Meals", color: "#f093fb" },
+    { id: "friends", label: "Friends", color: "#f59e0b" },
   ];
 
   return (
     <div
       style={{
         display: "flex",
+        flexWrap: "wrap",
         gap: 12,
         marginBottom: 24,
         background: "white",

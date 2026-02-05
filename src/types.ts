@@ -87,3 +87,13 @@ export type UserWithId = UserProfile & { id: string };
 export type ApartmentWithData = Apartment & {
   avgBalance: number;
 };
+
+/**
+ * Friend/relationship types
+ */
+export type RelationshipStatus = "friend" | "request_sent" | "request_received";
+
+export type UserRelationship = {
+  status: RelationshipStatus;
+  timestamp: number;
+};

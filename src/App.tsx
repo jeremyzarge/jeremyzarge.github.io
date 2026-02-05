@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { ref, get } from "firebase/database";
 import type { User } from "firebase/auth";
 import firebaseClient, { rtdb, ensureUserNumericMapping, createNumericApartmentId, loginWithGoogle } from "./firebaseClient";
 import { createOrUpdateUserNumeric } from "./index";
 import { fetchAllUsers, fetchAllApartments } from "./utils";
+import { subscribeToRelationships, getFriendIds } from "./friendsService";
 import ProfileSetup from "./profileSetup";
 import MealEditor from "./components/MealEditor";
 import MyMeals from "./components/MyMeals";
@@ -11,7 +12,9 @@ import MealLedger from "./components/MealLedger";
 import Tabs from "./components/Tabs";
 import FloatingAddButton from "./components/FloatingAddButton";
 import ProfileEditor from "./components/ProfileEditor";
-import type { UserProfile, Apartment, UserWithId, CanBring, Allergies } from "./types";
+import FriendsTab from "./components/FriendsTab";
+import UserProfileView from "./components/UserProfileView";
+import type { UserProfile, Apartment, UserWithId, UserRelationship, CanBring, Allergies } from "./types";
 
 const { auth } = firebaseClient;
 
@@ -33,13 +36,18 @@ export default function App() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [needsProfile, setNeedsProfile] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"ledger" | "past" | "upcoming">("ledger");
+  const [activeTab, setActiveTab] = useState<"ledger" | "past" | "upcoming" | "friends">("ledger");
   const [showCreate, setShowCreate] = useState(false);
   const [showProfileEditor, setShowProfileEditor] = useState(false);
+  const [viewingProfileUserId, setViewingProfileUserId] = useState<string | null>(null);
 
   // Cache for users and apartments (loaded once when profile exists)
   const [users, setUsers] = useState<UserWithId[]>([]);
   const [apartments, setApartments] = useState<Apartment[]>([]);
+
+  // Friends / relationships
+  const [relationships, setRelationships] = useState<Record<string, UserRelationship>>({});
+  const friendIds = useMemo(() => getFriendIds(relationships), [relationships]);
 
   /**
    * Load user profile from database
@@ -91,6 +99,15 @@ export default function App() {
     });
     return () => unsub();
   }, []);
+
+  // Subscribe to relationships when logged in
+  useEffect(() => {
+    if (!myId) {
+      setRelationships({});
+      return;
+    }
+    return subscribeToRelationships(myId, setRelationships);
+  }, [myId]);
 
   /**
    * Handle profile setup completion
@@ -292,9 +309,15 @@ export default function App() {
         </button>
       </div>
 
-      <Tabs active={activeTab} onChange={(tab) => setActiveTab(tab as "ledger" | "past" | "upcoming")} />
+      <Tabs active={activeTab} onChange={(tab) => setActiveTab(tab as "ledger" | "past" | "upcoming" | "friends")} />
 
-      {activeTab === "ledger" && <MealLedger currentUserId={myId} />}
+      {activeTab === "ledger" && (
+        <MealLedger
+          currentUserId={myId}
+          friendIds={friendIds}
+          onViewProfile={(id: string) => setViewingProfileUserId(id)}
+        />
+      )}
       {activeTab === "past" && (
         <MyMeals
           myId={myId}
@@ -302,6 +325,7 @@ export default function App() {
           apartments={apartments}
           mode="past"
           authUser={authUser}
+          onViewProfile={(id: string) => setViewingProfileUserId(id)}
         />
       )}
       {activeTab === "upcoming" && (
@@ -311,6 +335,15 @@ export default function App() {
           apartments={apartments}
           mode="upcoming"
           authUser={authUser}
+          onViewProfile={(id: string) => setViewingProfileUserId(id)}
+        />
+      )}
+      {activeTab === "friends" && (
+        <FriendsTab
+          currentUserId={myId}
+          allUsers={users}
+          relationships={relationships}
+          onViewProfile={(id: string) => setViewingProfileUserId(id)}
         />
       )}
 
@@ -320,6 +353,8 @@ export default function App() {
         <MealEditor
           authUser={authUser}
           currentUserId={myId}
+          friendIds={friendIds}
+          onViewProfile={(id: string) => setViewingProfileUserId(id)}
           onCreated={() => {
             setShowCreate(false);
             refreshMeals();
@@ -334,6 +369,17 @@ export default function App() {
           currentProfile={profile}
           onSaved={handleProfileSaved}
           onCancel={() => setShowProfileEditor(false)}
+        />
+      )}
+
+      {viewingProfileUserId && (
+        <UserProfileView
+          userId={viewingProfileUserId}
+          currentUserId={myId}
+          allUsers={users}
+          relationships={relationships}
+          onClose={() => setViewingProfileUserId(null)}
+          onViewProfile={(id: string) => setViewingProfileUserId(id)}
         />
       )}
     </div>

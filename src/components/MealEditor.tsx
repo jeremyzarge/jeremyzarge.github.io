@@ -5,6 +5,7 @@ import { fetchAllUsers, fetchAllApartments, getAllergenCounts } from "../utils";
 import { createMeal } from "../index";
 import type { User } from "firebase/auth";
 import type { Meal, MealParticipant, UserWithId, Apartment } from "../types";
+import ClickableUserName from "./ClickableUserName";
 
 /** Food emoji and label mapping */
 const foodDisplayMap: Record<string, { emoji: string; label: string }> = {
@@ -81,6 +82,8 @@ interface MealEditorProps {
   onCreated?: () => void;
   authUser: User | null;
   currentUserId: string | null;
+  friendIds?: string[];
+  onViewProfile?: (userId: string) => void;
 }
 
 type MealWithId = Meal & { id: string };
@@ -88,7 +91,7 @@ type MealWithId = Meal & { id: string };
 /**
  * Modal editor for creating new meals or modifying existing ones
  */
-export default function MealEditor({ mealId, onClose, onCreated, authUser, currentUserId }: MealEditorProps) {
+export default function MealEditor({ mealId, onClose, onCreated, authUser: _authUser, currentUserId, friendIds, onViewProfile }: MealEditorProps) {
   const isCreateMode = !mealId;
   const [meal, setMeal] = useState<Meal | null>(null);
   const [originalMeal, setOriginalMeal] = useState<Meal | null>(null); // Track original for change detection
@@ -104,6 +107,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
 
   useEffect(() => {
     async function loadData() {
+      try {
       setLoading(true);
 
       // In create mode, initialize with default values
@@ -235,6 +239,10 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
       setFoods(foodKeys);
 
       setLoading(false);
+      } catch (err) {
+        console.error("Failed to load meal editor:", err);
+        setLoading(false);
+      }
     }
 
     loadData();
@@ -550,12 +558,20 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
     return getAllergenCounts(acceptedParticipantIds, users);
   }, [meal, users]);
 
-  // Get users available to add (not already participants)
+  // Get users available to add (not already participants), friends first
+  const friendSet = useMemo(() => new Set(friendIds || []), [friendIds]);
   const availableUsers = useMemo(() => {
     if (!meal) return [];
     const participantIds = new Set(Object.keys(meal.participants));
-    return users.filter((u) => !participantIds.has(u.id));
-  }, [users, meal]);
+    const available = users.filter((u) => !participantIds.has(u.id));
+    // Sort friends first, then alphabetical within each group
+    return available.sort((a, b) => {
+      const aIsFriend = friendSet.has(a.id) ? 0 : 1;
+      const bIsFriend = friendSet.has(b.id) ? 0 : 1;
+      if (aIsFriend !== bIsFriend) return aIsFriend - bIsFriend;
+      return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
+    });
+  }, [users, meal, friendSet]);
 
   // Get participants with user info
   const participantsWithInfo = useMemo(() => {
@@ -809,11 +825,24 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
                     }}
                   >
                     <option value="">-- Select user --</option>
-                    {availableUsers.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.first_name} {u.last_name} (Apt: {u.apartment || "—"})
-                      </option>
-                    ))}
+                    {friendSet.size > 0 && availableUsers.some((u) => friendSet.has(u.id)) && (
+                      <optgroup label="Friends">
+                        {availableUsers.filter((u) => friendSet.has(u.id)).map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.first_name} {u.last_name} (Apt: {u.apartment || "—"})
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {availableUsers.some((u) => !friendSet.has(u.id)) && (
+                      <optgroup label={friendSet.size > 0 ? "Other Users" : "Users"}>
+                        {availableUsers.filter((u) => !friendSet.has(u.id)).map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.first_name} {u.last_name} (Apt: {u.apartment || "—"})
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                   </select>
                   <button
                     type="button"
@@ -942,7 +971,16 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
                           onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                         >
                           <td style={{ padding: "12px", fontWeight: 600, color: "#374151" }}>
-                            {user.first_name} {user.last_name}
+                            {onViewProfile ? (
+                              <ClickableUserName
+                                userId={userId}
+                                firstName={user.first_name}
+                                lastName={user.last_name}
+                                onClick={onViewProfile}
+                              />
+                            ) : (
+                              <>{user.first_name} {user.last_name}</>
+                            )}
                           </td>
                           <td style={{ padding: "12px" }}>
                             <select
@@ -1071,7 +1109,16 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
                       }}
                     >
                       <span style={{ fontWeight: 600, color: "#374151" }}>
-                        {user?.first_name} {user?.last_name}
+                        {onViewProfile && user ? (
+                          <ClickableUserName
+                            userId={userId}
+                            firstName={user.first_name}
+                            lastName={user.last_name}
+                            onClick={onViewProfile}
+                          />
+                        ) : (
+                          <>{user?.first_name} {user?.last_name}</>
+                        )}
                       </span>
                       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                         <span
@@ -1165,7 +1212,17 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser, curre
                           }}
                         >
                           <div style={{ fontWeight: 700, color: "#10b981", marginBottom: 4 }}>
-                            {user ? `${user.first_name} ${user.last_name}` : msg.user}
+                            {user && onViewProfile ? (
+                              <ClickableUserName
+                                userId={msg.user}
+                                firstName={user.first_name}
+                                lastName={user.last_name}
+                                onClick={onViewProfile}
+                                style={{ color: "#10b981" }}
+                              />
+                            ) : (
+                              user ? `${user.first_name} ${user.last_name}` : msg.user
+                            )}
                           </div>
                           <div style={{ fontWeight: 500, color: "#374151", fontFamily: "Inter, sans-serif" }}>
                             {msg.text}

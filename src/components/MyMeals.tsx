@@ -12,6 +12,7 @@ interface MyMealsProps {
   apartments: Apartment[];
   mode: "past" | "upcoming";
   authUser: User | null;
+  onViewProfile?: (userId: string) => void;
 }
 
 type MealWithId = (Meal | LegacyMeal) & { id: string };
@@ -19,7 +20,7 @@ type MealWithId = (Meal | LegacyMeal) & { id: string };
 /**
  * Displays user's meal history with filtering and sorting
  */
-export default function MyMeals({ myId, users, apartments, mode, authUser }: MyMealsProps) {
+export default function MyMeals({ myId, users, apartments, mode, authUser, onViewProfile }: MyMealsProps) {
   const [mealEvents, setMealEvents] = useState<MealWithId[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedMealId, setSelectedMealId] = useState<string | null>(null);
@@ -534,6 +535,7 @@ export default function MyMeals({ myId, users, apartments, mode, authUser }: MyM
           authUser={authUser}
           currentUserId={myId}
           onClose={() => setSelectedMealId(null)}
+          onViewProfile={onViewProfile}
         />
       )}
     </div>

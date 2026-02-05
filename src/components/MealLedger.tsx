@@ -7,16 +7,18 @@ import MealList from "./MealList";
 
 interface MealLedgerProps {
   currentUserId: string;
+  friendIds: string[];
+  onViewProfile: (userId: string) => void;
 }
 
-type UserWithApartment = UserWithId & {
+type UserWithApartment = Omit<UserWithId, "apartment"> & {
   apartment: Apartment | null;
 };
 
 /**
  * Displays meal balance ledger with user and apartment views
  */
-export default function MealLedger({ currentUserId }: MealLedgerProps) {
+export default function MealLedger({ currentUserId, friendIds, onViewProfile }: MealLedgerProps) {
   const [meals, setMeals] = useState<Record<string, number> | null>(null);
   const [users, setUsers] = useState<UserWithApartment[] | null>(null);
   const [apartments, setApartments] = useState<Apartment[] | null>(null);
@@ -53,9 +55,10 @@ export default function MealLedger({ currentUserId }: MealLedgerProps) {
         setCurrentUserApartmentId(currentUser.apartment);
       }
 
-      // Filter out current user, placeholder users, and attach apartment data
+      // Filter to friends only (non-placeholder, non-self)
+      const friendSet = new Set(friendIds);
       const otherUsers = allUsers
-        .filter((user) => user.id !== currentUserId && user.first_name && !user.placeholder)
+        .filter((user) => user.id !== currentUserId && user.first_name && !user.placeholder && friendSet.has(user.id))
         .map((user) => ({
           ...user,
           apartment: allApartments.find((apt) => apt.id === user.apartment) || null,
@@ -71,9 +74,12 @@ export default function MealLedger({ currentUserId }: MealLedgerProps) {
     return <div style={{ padding: 20 }}>Loading Meal Ledger…</div>;
   }
 
-  // Calculate apartment average balances (excluding current user's apartment)
+  // Calculate apartment average balances (only apartments with friends, excluding own)
+  const friendApartmentIds = new Set(
+    users.filter((u) => friendIds.includes(u.id)).map((u) => u.apartment?.id).filter(Boolean)
+  );
   const apartmentData: ApartmentWithData[] = apartments
-    .filter((apt) => apt.id !== currentUserApartmentId) // Filter out own apartment
+    .filter((apt) => apt.id !== currentUserApartmentId && friendApartmentIds.has(apt.id))
     .map((apt) => {
       const members = users.filter((u) => u.apartment?.id === apt.id);
       const avgBalance =
@@ -138,7 +144,7 @@ export default function MealLedger({ currentUserId }: MealLedgerProps) {
       </div>
 
       {view === "users" && (
-        <MealList meals={meals} otherUsers={users} showApartment={true} />
+        <MealList meals={meals} otherUsers={users} showApartment={true} onViewProfile={onViewProfile} />
       )}
 
       {view === "apartments" && (

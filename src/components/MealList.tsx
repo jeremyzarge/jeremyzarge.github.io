@@ -1,4 +1,5 @@
 import { formatNumber } from "../utils";
+import ClickableUserName from "./ClickableUserName";
 
 interface MealListProps {
   meals: Record<string, number>;
@@ -6,10 +7,11 @@ interface MealListProps {
     id: string;
     first_name: string;
     last_name: string;
-    apartment?: { id: string; name: string; address: string };
+    apartment?: { id: string; name: string; address: string } | null;
   }>;
   showApartment?: boolean;
   apartmentMode?: boolean;
+  onViewProfile?: (userId: string) => void;
 }
 
 /**
@@ -20,6 +22,7 @@ export default function MealList({
   otherUsers,
   showApartment,
   apartmentMode,
+  onViewProfile,
 }: MealListProps) {
   return (
     <div
@@ -55,7 +58,16 @@ export default function MealList({
               }}
             >
               <td style={{ padding: 12 }}>
-                {u.first_name} {u.last_name}
+                {onViewProfile && !apartmentMode ? (
+                  <ClickableUserName
+                    userId={u.id}
+                    firstName={u.first_name}
+                    lastName={u.last_name}
+                    onClick={onViewProfile}
+                  />
+                ) : (
+                  <>{u.first_name} {u.last_name}</>
+                )}
               </td>
               {showApartment && !apartmentMode && (
                 <td style={{ padding: 12 }}>{u.apartment?.name ?? "-"}</td>
