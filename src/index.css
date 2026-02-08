@@ -42,48 +42,303 @@ body {
 /* Mobile responsiveness */
 @media (max-width: 768px) {
   #root {
-    padding: 10px;
+    padding: 8px;
+  }
+
+  /* Scale down base font for tablets */
+  html {
+    font-size: 14px;
   }
 
   h1 {
-    font-size: 1.5rem !important;
-  }
-
-  h2 {
     font-size: 1.3rem !important;
   }
 
-  h3 {
-    font-size: 1.1rem !important;
+  h2 {
+    font-size: 1.15rem !important;
   }
 
-  /* Stack buttons vertically on mobile */
-  .button-group {
-    flex-direction: column !important;
+  h3 {
+    font-size: 0.95rem !important;
+  }
+
+  h4 {
+    font-size: 0.85rem !important;
+  }
+
+  /* Reduce general text and spacing */
+  label {
+    font-size: 0.8rem !important;
+    margin-bottom: 4px !important;
+  }
+
+  p {
+    font-size: 0.85rem !important;
+  }
+
+  /* Compact inputs, selects, textareas */
+  input,
+  select,
+  textarea {
+    font-size: 0.85rem !important;
+    padding: 8px 10px !important;
+    border-width: 1.5px !important;
+  }
+
+  /* Compact buttons globally */
+  button {
+    font-size: 0.8rem !important;
+    padding: 8px 14px !important;
   }
 
   /* Make tables scrollable on mobile */
   table {
     display: block;
     overflow-x: auto;
-    white-space: nowrap;
+    width: 100% !important;
+  }
+
+  table th,
+  table td {
+    padding: 8px 6px !important;
+    font-size: 0.8rem !important;
+    white-space: normal !important;
+  }
+
+  /* Only nowrap on complex tables that need horizontal scroll */
+  .participant-table table th,
+  .participant-table table td {
+    white-space: nowrap !important;
+  }
+
+  /* Modal overlays */
+  .modal-overlay {
+    padding: 10px !important;
+    align-items: flex-start !important;
+  }
+
+  /* Modal content panels */
+  .modal-content {
+    max-width: 95vw !important;
+    padding: 14px !important;
+    gap: 12px !important;
+    border-radius: 14px !important;
+    border-width: 2px !important;
+  }
+
+  /* Tab bars (main tabs, sub-tabs, toggles) */
+  .tab-bar {
+    width: 100% !important;
+    border-radius: 10px !important;
+    justify-content: center !important;
+    gap: 4px !important;
+    padding: 4px !important;
+    margin-bottom: 14px !important;
+  }
+
+  .tab-bar button {
+    padding: 7px 10px !important;
+    font-size: 0.75rem !important;
+    border-radius: 8px !important;
+  }
+
+  /* Filter grids (MyMeals) */
+  .filter-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+  }
+
+  /* Form grids (MealEditor info tab) */
+  .form-grid {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  /* Button bars (modal footers) */
+  .button-bar {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    margin-top: 16px !important;
+  }
+
+  .button-bar button {
+    flex: 1 1 auto !important;
+    min-width: 100px !important;
+    padding: 8px 12px !important;
+  }
+
+  /* Add participant row - stack on mobile */
+  .add-participant-row {
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+
+  .add-participant-row select {
+    width: 100% !important;
+  }
+
+  /* Invitation rows (MyMeals pending invitations) */
+  .invitation-row {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 8px !important;
+    padding: 10px !important;
+  }
+
+  /* Welcome header (App.tsx) */
+  .welcome-header {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 10px !important;
+    margin-bottom: 14px !important;
+  }
+
+  /* Floating action button - smaller on mobile */
+  .fab {
+    bottom: 16px !important;
+    right: 16px !important;
+    width: 50px !important;
+    height: 50px !important;
+    font-size: 1.5rem !important;
+  }
+
+  /* Compact participant table */
+  .participant-table {
+    font-size: 0.78rem !important;
+    border-width: 1.5px !important;
+  }
+
+  .participant-table th,
+  .participant-table td {
+    padding: 6px 4px !important;
+  }
+
+  /* Compact card sections */
+  .card {
+    padding: 14px !important;
+    margin-bottom: 12px !important;
+    border-radius: 12px !important;
+  }
+
+  /* Reduce box shadows on mobile for performance */
+  .modal-content,
+  .tab-bar,
+  .login-card {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15) !important;
   }
 }
 
 @media (max-width: 480px) {
   #root {
-    padding: 8px;
+    padding: 6px;
   }
 
-  button {
+  /* Scale down base font more for phones */
+  html {
+    font-size: 13px;
+  }
+
+  h1 {
+    font-size: 1.15rem !important;
+  }
+
+  h2 {
+    font-size: 1.05rem !important;
+  }
+
+  h3 {
     font-size: 0.9rem !important;
-    padding: 8px 12px !important;
   }
 
+  /* Even more compact inputs */
   input,
   select,
   textarea {
+    font-size: 0.85rem !important;
+    padding: 7px 8px !important;
+    border-radius: 8px !important;
+  }
+
+  /* Even more compact buttons */
+  button {
+    font-size: 0.78rem !important;
+    padding: 6px 10px !important;
+  }
+
+  /* Tab bars - tighter on phones */
+  .tab-bar {
+    gap: 2px !important;
+    padding: 3px !important;
+  }
+
+  .tab-bar button {
+    padding: 6px 8px !important;
+    font-size: 0.7rem !important;
+  }
+
+  /* Filter grids stack to single column */
+  .filter-grid {
+    grid-template-columns: 1fr !important;
+    gap: 6px !important;
+  }
+
+  /* Modal content even tighter on phones */
+  .modal-content {
+    padding: 10px !important;
+    border-radius: 10px !important;
+    gap: 8px !important;
+  }
+
+  .modal-content h2,
+  .modal-content h3 {
     font-size: 1rem !important;
+    margin-bottom: 8px !important;
+  }
+
+  /* Participant table even more compact */
+  .participant-table {
+    font-size: 0.72rem !important;
+  }
+
+  .participant-table th,
+  .participant-table td {
+    padding: 5px 3px !important;
+  }
+
+  /* Login card */
+  .login-card {
+    padding: 16px !important;
+    border-radius: 14px !important;
+  }
+
+  .login-card h1 {
+    font-size: 1.25rem !important;
+  }
+
+  /* Button bar tighter */
+  .button-bar {
+    gap: 6px !important;
+    margin-top: 12px !important;
+  }
+
+  .button-bar button {
+    min-width: 80px !important;
+    padding: 7px 10px !important;
+  }
+
+  /* Floating action button even smaller */
+  .fab {
+    bottom: 14px !important;
+    right: 14px !important;
+    width: 44px !important;
+    height: 44px !important;
+    font-size: 1.3rem !important;
+  }
+
+  /* Welcome header tighter */
+  .welcome-header {
+    gap: 8px !important;
+    margin-bottom: 10px !important;
   }
 }
 

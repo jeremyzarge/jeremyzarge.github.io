@@ -125,6 +125,7 @@ export default function ProfileEditor({
 
   return (
     <div
+      className="modal-overlay"
       style={{
         position: "fixed",
         top: 0,
@@ -143,6 +144,7 @@ export default function ProfileEditor({
     >
       <form
         onSubmit={handleSubmit}
+        className="modal-content"
         style={{
           display: "flex",
           flexDirection: "column",

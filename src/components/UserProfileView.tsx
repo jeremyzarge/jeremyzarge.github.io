@@ -93,6 +93,7 @@ export default function UserProfileView({
 
   return (
     <div
+      className="modal-overlay"
       onClick={onClose}
       style={{
         position: "fixed",
@@ -111,6 +112,7 @@ export default function UserProfileView({
       }}
     >
       <div
+        className="modal-content"
         onClick={(e) => e.stopPropagation()}
         style={{
           display: "flex",

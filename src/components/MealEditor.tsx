@@ -597,6 +597,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
 
   return (
     <div
+      className="modal-overlay"
       style={{
         position: "fixed",
         top: 0,
@@ -612,6 +613,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
       }}
     >
       <div
+        className="modal-content"
         style={{
           background: "white",
           padding: 32,
@@ -643,7 +645,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         </h3>
 
         {/* Tabs */}
-        <div style={{ display: "flex", gap: 10, marginBottom: 24, background: "#f3f4f6", padding: 6, borderRadius: 50, width: "fit-content" }}>
+        <div className="tab-bar" style={{ display: "flex", gap: 10, marginBottom: 24, background: "#f3f4f6", padding: 6, borderRadius: 50, width: "fit-content" }}>
           {(isCreateMode
             ? (["info", "participants"] as const)
             : (["info", "participants", "messages"] as const)
@@ -673,7 +675,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
 
         {activeTab === "info" && (
           <div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div className="form-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
               <div>
                 <label style={{ display: "block", marginBottom: 8, fontWeight: 700, color: "#374151", fontSize: "0.9rem" }}>
                   Meal Title
@@ -809,12 +811,13 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                 <div style={{ marginBottom: 12, fontWeight: 800, color: "#1e40af", fontSize: "1rem" }}>
                   👥 Add Participant
                 </div>
-                <div style={{ display: "flex", gap: 12 }}>
+                <div className="add-participant-row" style={{ display: "flex", gap: 12 }}>
                   <select
                     value={selectedUserId}
                     onChange={(e) => setSelectedUserId(e.target.value)}
                     style={{
                       flex: 1,
+                      minWidth: 0,
                       padding: "12px 16px",
                       borderRadius: 12,
                       border: "2px solid #60a5fa",
@@ -887,6 +890,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
               </div>
             ) : (
               <div
+                className="participant-table"
                 style={{
                   overflowX: "auto",
                   background: "white",
@@ -1251,7 +1255,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           </div>
         )}
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, marginTop: 28 }}>
+        <div className="button-bar" style={{ display: "flex", justifyContent: "flex-end", gap: 12, marginTop: 28 }}>
           <button
             onClick={onClose}
             style={{

@@ -125,6 +125,7 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
     >
       <form
         onSubmit={handleSubmit}
+        className="modal-content"
         style={{
           display: "flex",
           flexDirection: "column",

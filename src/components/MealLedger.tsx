@@ -98,6 +98,7 @@ export default function MealLedger({ currentUserId, friendIds, onViewProfile }: 
   return (
     <div style={{ marginBottom: 20 }}>
       <div
+        className="tab-bar"
         style={{
           display: "flex",
           gap: 10,

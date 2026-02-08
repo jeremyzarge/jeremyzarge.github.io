@@ -12,6 +12,7 @@ export default function FloatingAddButton({ onClick }: FloatingAddButtonProps) {
 
   return (
     <button
+      className="fab"
       onClick={onClick}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}

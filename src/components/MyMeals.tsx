@@ -236,6 +236,7 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, onVie
           Filter & Sort
         </h4>
         <div
+          className="filter-grid"
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
@@ -378,6 +379,7 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, onVie
 
             return (
               <div
+                className="invitation-row"
                 key={m.id}
                 style={{
                   display: "flex",

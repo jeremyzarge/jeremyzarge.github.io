@@ -124,6 +124,7 @@ export default function FriendsTab({
 
       {/* Sub-Tabs */}
       <div
+        className="tab-bar"
         style={{
           display: "flex",
           gap: 8,

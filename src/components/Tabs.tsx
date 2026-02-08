@@ -16,6 +16,7 @@ export default function Tabs({ active, onChange }: TabsProps) {
 
   return (
     <div
+      className="tab-bar"
       style={{
         display: "flex",
         flexWrap: "wrap",

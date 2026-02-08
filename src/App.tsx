@@ -201,6 +201,7 @@ export default function App() {
         }}
       >
         <div
+          className="login-card"
           style={{
             backgroundColor: "white",
             padding: 40,
@@ -274,6 +275,7 @@ export default function App() {
   return (
     <div style={{ width: "100%", maxWidth: 1200, margin: "0 auto" }}>
       <div
+        className="welcome-header"
         style={{
           display: "flex",
           justifyContent: "space-between",
