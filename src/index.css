@@ -91,13 +91,7 @@ body {
     padding: 8px 14px !important;
   }
 
-  /* Make tables scrollable on mobile */
-  table {
-    display: block;
-    overflow-x: auto;
-    width: 100% !important;
-  }
-
+  /* Compact table cells on mobile */
   table th,
   table td {
     padding: 8px 6px !important;
@@ -105,7 +99,11 @@ body {
     white-space: normal !important;
   }
 
-  /* Only nowrap on complex tables that need horizontal scroll */
+  /* Only the participant table needs horizontal scroll */
+  .participant-table {
+    overflow-x: auto !important;
+  }
+
   .participant-table table th,
   .participant-table table td {
     white-space: nowrap !important;
@@ -218,6 +216,12 @@ body {
     padding: 14px !important;
     margin-bottom: 12px !important;
     border-radius: 12px !important;
+  }
+
+  /* Friend rows - compact on mobile */
+  .friend-row {
+    padding: 10px 12px !important;
+    gap: 10px !important;
   }
 
   /* Reduce box shadows on mobile for performance */

@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { ref, get } from "firebase/database";
+import { rtdb } from "../firebaseClient";
 import { fetchAllApartments } from "../utils";
 import {
   sendFriendRequest,
@@ -9,7 +11,7 @@ import {
   getMutualFriendIds,
 } from "../friendsService";
 import ClickableUserName from "./ClickableUserName";
-import type { UserWithId, Apartment, UserRelationship, RelationshipStatus } from "../types";
+import type { UserWithId, Apartment, UserRelationship, RelationshipStatus, Meal } from "../types";
 
 interface UserProfileViewProps {
   userId: string;
@@ -48,6 +50,7 @@ export default function UserProfileView({
 }: UserProfileViewProps) {
   const [apartment, setApartment] = useState<Apartment | null>(null);
   const [mutualFriendIds, setMutualFriendIds] = useState<string[]>([]);
+  const [commonMeals, setCommonMeals] = useState<Array<{ id: string; title: string; datetime: string }>>([]);
   const [actionLoading, setActionLoading] = useState(false);
 
   const user = allUsers.find((u) => u.id === userId);
@@ -60,7 +63,23 @@ export default function UserProfileView({
       setApartment(apts.find((a) => a.id === user.apartment) || null);
     });
     getMutualFriendIds(relationships, userId).then(setMutualFriendIds);
-  }, [userId, user, relationships]);
+
+    // Fetch common meals between currentUserId and this user
+    get(ref(rtdb, "meal_events")).then((snap) => {
+      if (!snap.exists()) return;
+      const allMeals = snap.val() as Record<string, Meal>;
+      const shared: Array<{ id: string; title: string; datetime: string }> = [];
+      for (const [mealId, meal] of Object.entries(allMeals)) {
+        const participants = meal.participants || {};
+        if (participants[currentUserId] && participants[userId]) {
+          shared.push({ id: mealId, title: meal.title || "Untitled", datetime: meal.datetime });
+        }
+      }
+      // Sort by date descending (most recent first)
+      shared.sort((a, b) => new Date(b.datetime).getTime() - new Date(a.datetime).getTime());
+      setCommonMeals(shared);
+    });
+  }, [userId, user, relationships, currentUserId]);
 
   if (!user) {
     return null;
@@ -199,21 +218,58 @@ export default function UserProfileView({
         )}
 
         {/* Mutual Friends */}
-        {mutualFriends.length > 0 && (
+        {userId !== currentUserId && (
           <div>
             <SectionTitle text={`Mutual Friends (${mutualFriends.length})`} />
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {mutualFriends.map((f) => (
-                <ClickableUserName
-                  key={f.id}
-                  userId={f.id}
-                  firstName={f.first_name}
-                  lastName={f.last_name}
-                  onClick={onViewProfile}
-                  style={{ fontSize: "0.95rem" }}
-                />
-              ))}
-            </div>
+            {mutualFriends.length > 0 ? (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {mutualFriends.map((f) => (
+                  <ClickableUserName
+                    key={f.id}
+                    userId={f.id}
+                    firstName={f.first_name}
+                    lastName={f.last_name}
+                    onClick={onViewProfile}
+                    style={{ fontSize: "0.95rem" }}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p style={{ color: "#9ca3af", margin: 0, fontSize: "0.85rem" }}>No mutual friends</p>
+            )}
+          </div>
+        )}
+
+        {/* Common Meals */}
+        {userId !== currentUserId && (
+          <div>
+            <SectionTitle text={`Common Meals (${commonMeals.length})`} />
+            {commonMeals.length > 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 160, overflowY: "auto" }}>
+                {commonMeals.map((m) => (
+                  <div
+                    key={m.id}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      padding: "8px 12px",
+                      borderRadius: 10,
+                      background: "#f0fdf4",
+                      border: "1px solid #bbf7d0",
+                      fontSize: "0.85rem",
+                    }}
+                  >
+                    <span style={{ fontWeight: 700, color: "#374151" }}>{m.title}</span>
+                    <span style={{ color: "#6b7280", fontSize: "0.75rem", fontWeight: 600 }}>
+                      {new Date(m.datetime).toLocaleDateString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={{ color: "#9ca3af", margin: 0, fontSize: "0.85rem" }}>No common meals</p>
+            )}
           </div>
         )}
 

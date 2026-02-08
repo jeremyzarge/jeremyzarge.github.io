@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { ref, get, set, remove, onValue } from "firebase/database";
 import { rtdb } from "../firebaseClient";
 import { fetchAllUsers, fetchAllApartments, getAllergenCounts } from "../utils";
@@ -76,6 +76,18 @@ const formatFood = (food: string): string => {
   return `🍽️ ${label}`;
 };
 
+/** Deterministic color from user ID for message names */
+const nameColors = [
+  "#e63946", "#457b9d", "#2a9d8f", "#e9c46a", "#f4a261",
+  "#264653", "#6a4c93", "#1982c4", "#8ac926", "#ff595e",
+  "#6d6875", "#b5838d", "#0077b6", "#d62828", "#588157",
+];
+function getNameColor(userId: string): string {
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) hash = (hash * 31 + userId.charCodeAt(i)) | 0;
+  return nameColors[Math.abs(hash) % nameColors.length];
+}
+
 interface MealEditorProps {
   mealId?: string | null; // Optional - if not provided, create mode
   onClose?: () => void;
@@ -104,6 +116,22 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
 
   // For adding participants
   const [selectedUserId, setSelectedUserId] = useState("");
+
+  // Ref for auto-scrolling messages to bottom
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+
+  /** Jump instantly to bottom (for initial load / tab switch) */
+  const jumpToBottom = useCallback(() => {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
+  }, []);
+
+  /** Smooth scroll to bottom (for after sending a new message) */
+  const scrollToBottomSmooth = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, []);
 
   useEffect(() => {
     async function loadData() {
@@ -275,6 +303,14 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
 
     return () => unsubscribe();
   }, [mealId, isCreateMode]);
+
+  // Jump to bottom instantly when switching to messages tab
+  useEffect(() => {
+    if (activeTab === "messages") {
+      // Small delay to let DOM render, then jump instantly (no animation)
+      setTimeout(() => jumpToBottom(), 50);
+    }
+  }, [activeTab, jumpToBottom]);
 
   // Check if current user is a host (in create mode, user can always edit)
   const isHost = useMemo(() => {
@@ -1187,6 +1223,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
             ) : (
               <>
                 <div
+                  ref={messagesContainerRef}
                   style={{
                     maxHeight: 280,
                     overflowY: "auto",
@@ -1195,6 +1232,8 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                     borderRadius: 12,
                     marginBottom: 12,
                     border: "2px solid #e5e7eb",
+                    display: "flex",
+                    flexDirection: "column",
                   }}
                 >
                   {Object.entries(meal.messages).length === 0 ? (
@@ -1202,30 +1241,35 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                       No messages yet. Start the conversation!
                     </div>
                   ) : (
-                    Object.entries(meal.messages).map(([id, msg]) => {
-                      const user = users.find((u) => u.id === msg.user);
+                    Object.entries(meal.messages)
+                      .sort(([, a], [, b]) => a.timestamp - b.timestamp)
+                      .map(([id, msg]) => {
+                      const msgUser = users.find((u) => u.id === msg.user);
+                      const nameColor = getNameColor(msg.user);
+                      const isMe = msg.user === currentUserId;
                       return (
                         <div
                           key={id}
                           style={{
                             marginBottom: 12,
                             padding: "10px 14px",
-                            background: "white",
+                            background: isMe ? "#f0fdf4" : "white",
                             borderRadius: 10,
                             boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
+                            borderLeft: `3px solid ${nameColor}`,
                           }}
                         >
-                          <div style={{ fontWeight: 700, color: "#10b981", marginBottom: 4 }}>
-                            {user && onViewProfile ? (
+                          <div style={{ fontWeight: 700, color: nameColor, marginBottom: 4, fontSize: "0.85rem" }}>
+                            {msgUser && onViewProfile ? (
                               <ClickableUserName
                                 userId={msg.user}
-                                firstName={user.first_name}
-                                lastName={user.last_name}
+                                firstName={msgUser.first_name}
+                                lastName={msgUser.last_name}
                                 onClick={onViewProfile}
-                                style={{ color: "#10b981" }}
+                                style={{ color: nameColor }}
                               />
                             ) : (
-                              user ? `${user.first_name} ${user.last_name}` : msg.user
+                              msgUser ? `${msgUser.first_name} ${msgUser.last_name}` : msg.user
                             )}
                           </div>
                           <div style={{ fontWeight: 500, color: "#374151", fontFamily: "Inter, sans-serif" }}>
@@ -1238,6 +1282,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                       );
                     })
                   )}
+                  <div ref={messagesEndRef} />
                 </div>
                 {mealId && currentUserId && (
                   <MessageInput mealId={mealId} currentUserId={currentUserId} onMessageSent={() => {
@@ -1246,6 +1291,8 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                       if (snap.exists()) {
                         const updatedMeal = snap.val() as Meal;
                         setMeal(updatedMeal);
+                        // Smooth scroll to bottom after sending a new message
+                        setTimeout(() => scrollToBottomSmooth(), 100);
                       }
                     });
                   }} />

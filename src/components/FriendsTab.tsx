@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   acceptFriendRequest,
   rejectFriendRequest,
@@ -6,15 +6,28 @@ import {
   getFriendIds,
   getIncomingRequestIds,
   getSentRequestIds,
+  getMutualFriendIds,
 } from "../friendsService";
 import ClickableUserName from "./ClickableUserName";
 import type { UserWithId, UserRelationship } from "../types";
+
+/** Deterministic color from user ID for avatar accent */
+const avatarColors = [
+  "#667eea", "#764ba2", "#f093fb", "#10b981", "#f59e0b",
+  "#ef4444", "#3b82f6", "#8b5cf6", "#ec4899", "#14b8a6",
+];
+function getAvatarColor(userId: string): string {
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) hash = (hash * 31 + userId.charCodeAt(i)) | 0;
+  return avatarColors[Math.abs(hash) % avatarColors.length];
+}
 
 interface FriendsTabProps {
   currentUserId: string;
   allUsers: UserWithId[];
   relationships: Record<string, UserRelationship>;
   onViewProfile: (userId: string) => void;
+  myId?: string;
 }
 
 type SubTab = "friends" | "incoming" | "sent";
@@ -170,7 +183,7 @@ export default function FriendsTab({
         }}
       >
         {activeSubTab === "friends" && (
-          <FriendsList friendIds={friendIds} userMap={userMap} onViewProfile={onViewProfile} />
+          <FriendsList friendIds={friendIds} userMap={userMap} onViewProfile={onViewProfile} relationships={relationships} />
         )}
         {activeSubTab === "incoming" && (
           <IncomingRequests
@@ -199,20 +212,46 @@ function FriendsList({
   friendIds,
   userMap,
   onViewProfile,
+  relationships,
 }: {
   friendIds: string[];
   userMap: Record<string, UserWithId>;
   onViewProfile: (id: string) => void;
+  relationships: Record<string, UserRelationship>;
 }) {
+  const [mutualCounts, setMutualCounts] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMutuals() {
+      const counts: Record<string, number> = {};
+      for (const id of friendIds) {
+        const mutuals = await getMutualFriendIds(relationships, id);
+        if (cancelled) return;
+        counts[id] = mutuals.length;
+      }
+      setMutualCounts(counts);
+    }
+    if (friendIds.length > 0) loadMutuals();
+    return () => { cancelled = true; };
+  }, [friendIds, relationships]);
+
   if (friendIds.length === 0) {
     return <p style={{ color: "#9ca3af", margin: 0 }}>No friends yet. Search for people above!</p>;
   }
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {friendIds.map((id) => {
         const u = userMap[id];
         if (!u) return null;
-        return <UserRow key={id} user={u} onViewProfile={onViewProfile} />;
+        return (
+          <UserRow
+            key={id}
+            user={u}
+            onViewProfile={onViewProfile}
+            mutualCount={mutualCounts[id]}
+          />
+        );
       })}
     </div>
   );
@@ -252,26 +291,51 @@ function IncomingRequests({
       {incomingIds.map((id) => {
         const u = userMap[id];
         if (!u) return null;
+        const color = getAvatarColor(id);
+        const initials = `${(u.first_name || "?")[0]}${(u.last_name || "?")[0]}`.toUpperCase();
         return (
           <div
             key={id}
             style={{
               display: "flex",
-              justifyContent: "space-between",
               alignItems: "center",
-              padding: "10px 14px",
-              borderRadius: 12,
+              gap: 14,
+              padding: "12px 16px",
+              borderRadius: 14,
               background: "#fffbeb",
-              border: "1px solid #fde68a",
+              border: "2px solid #fde68a",
+              borderLeft: `4px solid #f59e0b`,
+              boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
             }}
           >
-            <ClickableUserName
-              userId={u.id}
-              firstName={u.first_name}
-              lastName={u.last_name}
-              onClick={onViewProfile}
-            />
-            <div style={{ display: "flex", gap: 8 }}>
+            <div
+              style={{
+                width: 42,
+                height: 42,
+                borderRadius: "50%",
+                background: `linear-gradient(135deg, ${color}40, ${color}20)`,
+                border: `2px solid ${color}`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: 800,
+                fontSize: "0.9rem",
+                color: color,
+                flexShrink: 0,
+              }}
+            >
+              {initials}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <ClickableUserName
+                userId={u.id}
+                firstName={u.first_name}
+                lastName={u.last_name}
+                onClick={onViewProfile}
+                style={{ fontWeight: 700, fontSize: "0.95rem" }}
+              />
+            </div>
+            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
               <SmallButton
                 label="Accept"
                 bg="linear-gradient(135deg, #10b981 0%, #059669 100%)"
@@ -320,25 +384,50 @@ function SentRequests({
       {sentIds.map((id) => {
         const u = userMap[id];
         if (!u) return null;
+        const color = getAvatarColor(id);
+        const initials = `${(u.first_name || "?")[0]}${(u.last_name || "?")[0]}`.toUpperCase();
         return (
           <div
             key={id}
             style={{
               display: "flex",
-              justifyContent: "space-between",
               alignItems: "center",
-              padding: "10px 14px",
-              borderRadius: 12,
+              gap: 14,
+              padding: "12px 16px",
+              borderRadius: 14,
               background: "#f5f3ff",
-              border: "1px solid #ddd6fe",
+              border: "2px solid #ddd6fe",
+              borderLeft: "4px solid #8b5cf6",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
             }}
           >
-            <ClickableUserName
-              userId={u.id}
-              firstName={u.first_name}
-              lastName={u.last_name}
-              onClick={onViewProfile}
-            />
+            <div
+              style={{
+                width: 42,
+                height: 42,
+                borderRadius: "50%",
+                background: `linear-gradient(135deg, ${color}40, ${color}20)`,
+                border: `2px solid ${color}`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: 800,
+                fontSize: "0.9rem",
+                color: color,
+                flexShrink: 0,
+              }}
+            >
+              {initials}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <ClickableUserName
+                userId={u.id}
+                firstName={u.first_name}
+                lastName={u.last_name}
+                onClick={onViewProfile}
+                style={{ fontWeight: 700, fontSize: "0.95rem" }}
+              />
+            </div>
             <SmallButton
               label="Cancel"
               bg="linear-gradient(135deg, #9ca3af 0%, #6b7280 100%)"
@@ -356,38 +445,89 @@ function UserRow({
   user,
   onViewProfile,
   badge,
+  mutualCount,
 }: {
   user: UserWithId;
   onViewProfile: (id: string) => void;
   badge?: string;
+  mutualCount?: number;
 }) {
+  const color = getAvatarColor(user.id);
+  const initials = `${(user.first_name || "?")[0]}${(user.last_name || "?")[0]}`.toUpperCase();
+
   return (
     <div
+      className="friend-row"
       style={{
         display: "flex",
-        justifyContent: "space-between",
         alignItems: "center",
-        padding: "10px 14px",
-        borderRadius: 12,
-        background: "#f9fafb",
-        border: "1px solid #f3f4f6",
+        gap: 14,
+        padding: "12px 16px",
+        borderRadius: 14,
+        background: "white",
+        border: "2px solid #e5e7eb",
+        borderLeft: `4px solid ${color}`,
+        boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+        transition: "all 0.2s ease",
+        cursor: "pointer",
+      }}
+      onClick={() => onViewProfile(user.id)}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)";
+        e.currentTarget.style.transform = "translateY(-1px)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.06)";
+        e.currentTarget.style.transform = "translateY(0)";
       }}
     >
-      <ClickableUserName
-        userId={user.id}
-        firstName={user.first_name}
-        lastName={user.last_name}
-        onClick={onViewProfile}
-      />
+      {/* Avatar circle */}
+      <div
+        style={{
+          width: 42,
+          height: 42,
+          borderRadius: "50%",
+          background: `linear-gradient(135deg, ${color}40, ${color}20)`,
+          border: `2px solid ${color}`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontWeight: 800,
+          fontSize: "0.9rem",
+          color: color,
+          flexShrink: 0,
+        }}
+      >
+        {initials}
+      </div>
+
+      {/* Name and details */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <ClickableUserName
+          userId={user.id}
+          firstName={user.first_name}
+          lastName={user.last_name}
+          onClick={onViewProfile}
+          style={{ fontWeight: 700, fontSize: "0.95rem" }}
+        />
+        {mutualCount !== undefined && mutualCount > 0 && (
+          <div style={{ fontSize: "0.75rem", color: "#9ca3af", fontWeight: 600, marginTop: 2 }}>
+            {mutualCount} mutual friend{mutualCount !== 1 ? "s" : ""}
+          </div>
+        )}
+      </div>
+
+      {/* Badge (for search results) */}
       {badge && (
         <span
           style={{
             padding: "4px 12px",
             borderRadius: 50,
-            background: "#e5e7eb",
-            color: "#6b7280",
-            fontWeight: 600,
-            fontSize: "0.8rem",
+            background: badge === "Friend" ? "#10b98120" : "#e5e7eb",
+            color: badge === "Friend" ? "#10b981" : "#6b7280",
+            fontWeight: 700,
+            fontSize: "0.75rem",
+            flexShrink: 0,
           }}
         >
           {badge}
