@@ -55,10 +55,16 @@ export default function MealLedger({ currentUserId, friendIds, onViewProfile }: 
         setCurrentUserApartmentId(currentUser.apartment);
       }
 
-      // Filter to friends only (non-placeholder, non-self)
+      // Filter to friends OR people with a meal balance (non-placeholder, non-self)
       const friendSet = new Set(friendIds);
+      const mealPartnerIds = new Set(Object.keys(meals ?? {}));
       const otherUsers = allUsers
-        .filter((user) => user.id !== currentUserId && user.first_name && !user.placeholder && friendSet.has(user.id))
+        .filter((user) =>
+          user.id !== currentUserId &&
+          user.first_name &&
+          !user.placeholder &&
+          (friendSet.has(user.id) || mealPartnerIds.has(user.id))
+        )
         .map((user) => ({
           ...user,
           apartment: allApartments.find((apt) => apt.id === user.apartment) || null,
@@ -68,18 +74,18 @@ export default function MealLedger({ currentUserId, friendIds, onViewProfile }: 
     }
 
     fetchData();
-  }, [currentUserId]);
+  }, [currentUserId, friendIds, meals]);
 
   if (!meals || !users || !apartments) {
     return <div style={{ padding: 20 }}>Loading Meal Ledger…</div>;
   }
 
-  // Calculate apartment average balances (only apartments with friends, excluding own)
-  const friendApartmentIds = new Set(
-    users.filter((u) => friendIds.includes(u.id)).map((u) => u.apartment?.id).filter(Boolean)
+  // Calculate apartment average balances (only apartments with relevant users, excluding own)
+  const relevantApartmentIds = new Set(
+    users.map((u) => u.apartment?.id).filter(Boolean)
   );
   const apartmentData: ApartmentWithData[] = apartments
-    .filter((apt) => apt.id !== currentUserApartmentId && friendApartmentIds.has(apt.id))
+    .filter((apt) => apt.id !== currentUserApartmentId && relevantApartmentIds.has(apt.id))
     .map((apt) => {
       const members = users.filter((u) => u.apartment?.id === apt.id);
       const avgBalance =
