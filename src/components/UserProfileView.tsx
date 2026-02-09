@@ -194,28 +194,32 @@ export default function UserProfileView({
         </div>
 
         {/* Can Bring */}
-        {activeCanBring.length > 0 && (
-          <div>
-            <SectionTitle text="Can Bring" />
+        <div>
+          <SectionTitle text={`Can Bring (${activeCanBring.length})`} />
+          {activeCanBring.length > 0 ? (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {activeCanBring.map((label) => (
                 <Pill key={label} label={label} color="#10b981" />
               ))}
             </div>
-          </div>
-        )}
+          ) : (
+            <p style={{ color: "#9ca3af", margin: 0, fontSize: "0.85rem" }}>None listed</p>
+          )}
+        </div>
 
         {/* Allergies */}
-        {allAllergies.length > 0 && (
-          <div>
-            <SectionTitle text="Allergies / Dietary" />
+        <div>
+          <SectionTitle text={`Allergies / Dietary (${allAllergies.length})`} />
+          {allAllergies.length > 0 ? (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {allAllergies.map((label) => (
                 <Pill key={label} label={label} color="#f59e0b" />
               ))}
             </div>
-          </div>
-        )}
+          ) : (
+            <p style={{ color: "#9ca3af", margin: 0, fontSize: "0.85rem" }}>None listed</p>
+          )}
+        </div>
 
         {/* Mutual Friends */}
         {userId !== currentUserId && (
