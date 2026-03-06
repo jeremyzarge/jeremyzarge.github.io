@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { ref, get } from "firebase/database";
 import type { User } from "firebase/auth";
 import firebaseClient, { rtdb, ensureUserNumericMapping, createNumericApartmentId, loginWithGoogle } from "./firebaseClient";
@@ -15,6 +15,7 @@ import ProfileEditor from "./components/ProfileEditor";
 import FriendsTab from "./components/FriendsTab";
 import UserProfileView from "./components/UserProfileView";
 import type { UserProfile, Apartment, UserWithId, UserRelationship, CanBring, Allergies } from "./types";
+import { claimMealInvite } from "./inviteService";
 
 const { auth } = firebaseClient;
 
@@ -31,6 +32,18 @@ interface ProfileData {
  * Main application component
  */
 export default function App() {
+  // Capture ?invite=TOKEN from URL once on load, then strip it from the bar
+  const pendingInviteToken = useRef<string | null>(
+    new URLSearchParams(window.location.search).get("invite")
+  );
+  useEffect(() => {
+    if (pendingInviteToken.current) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("invite");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, []);
+
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [myId, setMyId] = useState<string | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -93,6 +106,14 @@ export default function App() {
 
         setUsers(allUsers);
         setApartments(allApartments);
+
+        // Claim a pending invite link if one was in the URL
+        if (pendingInviteToken.current) {
+          const token = pendingInviteToken.current;
+          pendingInviteToken.current = null;
+          const mealId = await claimMealInvite(token, numericId);
+          if (mealId) setActiveTab("upcoming");
+        }
       }
 
       setLoading(false);
@@ -148,6 +169,14 @@ export default function App() {
 
     setUsers(allUsers);
     setApartments(allApartments);
+
+    // Claim a pending invite link if one was in the URL
+    if (pendingInviteToken.current) {
+      const token = pendingInviteToken.current;
+      pendingInviteToken.current = null;
+      const mealId = await claimMealInvite(token, myId);
+      if (mealId) setActiveTab("upcoming");
+    }
 
     setLoading(false);
   }

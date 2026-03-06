@@ -1,7 +1,10 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
 import { ref, get, set, remove, onValue } from "firebase/database";
 import { rtdb } from "../firebaseClient";
 import { fetchAllUsers, fetchAllApartments, getAllergenCounts } from "../utils";
+import { generateMealInviteUrl } from "../inviteService";
 import { createMeal } from "../index";
 import type { User } from "firebase/auth";
 import type { Meal, MealParticipant, UserWithId, Apartment } from "../types";
@@ -88,6 +91,7 @@ function getNameColor(userId: string): string {
   return nameColors[Math.abs(hash) % nameColors.length];
 }
 
+
 interface MealEditorProps {
   mealId?: string | null; // Optional - if not provided, create mode
   onClose?: () => void;
@@ -116,6 +120,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
 
   // For adding participants
   const [selectedUserId, setSelectedUserId] = useState("");
+  const [copiedInvite, setCopiedInvite] = useState(false);
 
   // Ref for auto-scrolling messages to bottom
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -764,6 +769,39 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
 
             <div
               style={{
+                marginTop: 16,
+                padding: 16,
+                background: "linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%)",
+                borderRadius: 12,
+                border: "2px solid #a78bfa",
+              }}
+            >
+              <label style={{ display: "block", marginBottom: 8, fontWeight: 800, color: "#5b21b6", fontSize: "0.9rem" }}>
+                📅 Date & Time
+              </label>
+              <DatePicker
+                selected={meal.datetime ? new Date(meal.datetime) : null}
+                onChange={(date) => {
+                  if (!isHost || isPastMeal || !date) return;
+                  if (date <= new Date()) return;
+                  setMeal((prev) => prev && { ...prev, datetime: date.toISOString() });
+                }}
+                showTimeSelect
+                timeFormat="h:mm aa"
+                timeIntervals={15}
+                dateFormat="MMMM d, yyyy h:mm aa"
+                minDate={new Date()}
+                filterTime={(time) => time > new Date()}
+                onChangeRaw={(e) => e.preventDefault()}
+                disabled={!isHost || isPastMeal}
+                placeholderText="Select date and time..."
+                wrapperClassName="datepicker-full-width"
+                className="datepicker-input"
+              />
+            </div>
+
+            <div
+              style={{
                 marginTop: 24,
                 padding: 20,
                 background: "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)",
@@ -868,7 +906,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                       <optgroup label="Friends">
                         {availableUsers.filter((u) => friendSet.has(u.id)).map((u) => (
                           <option key={u.id} value={u.id}>
-                            {u.first_name} {u.last_name} (Apt: {u.apartment || "—"})
+                            {u.first_name} {u.last_name} ({apartments.find((a) => a.id === u.apartment)?.name || "No apt"})
                           </option>
                         ))}
                       </optgroup>
@@ -877,7 +915,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                       <optgroup label={friendSet.size > 0 ? "Other Users" : "Users"}>
                         {availableUsers.filter((u) => !friendSet.has(u.id)).map((u) => (
                           <option key={u.id} value={u.id}>
-                            {u.first_name} {u.last_name} (Apt: {u.apartment || "—"})
+                            {u.first_name} {u.last_name} ({apartments.find((a) => a.id === u.apartment)?.name || "No apt"})
                           </option>
                         ))}
                       </optgroup>
@@ -1319,8 +1357,44 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           >
             Cancel
           </button>
+          {isHost && !isCreateMode && !isPastMeal && mealId && currentUserId && (
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  const url = generateMealInviteUrl(mealId);
+                  navigator.clipboard.writeText(url).then(() => {
+                    setCopiedInvite(true);
+                    setTimeout(() => setCopiedInvite(false), 2000);
+                  }).catch(() => {
+                    prompt("Copy this invite link:", url);
+                  });
+                } catch {
+                  alert("Failed to generate invite link.");
+                }
+              }}
+              style={{
+                padding: "12px 24px",
+                borderRadius: 12,
+                border: "none",
+                background: copiedInvite
+                  ? "linear-gradient(135deg, #10b981 0%, #059669 100%)"
+                  : "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)",
+                color: "white",
+                cursor: "pointer",
+                fontWeight: 800,
+                fontSize: "1rem",
+                boxShadow: copiedInvite
+                  ? "0 4px 12px rgba(16, 185, 129, 0.3)"
+                  : "0 4px 12px rgba(99, 102, 241, 0.3)",
+                transition: "all 0.2s ease",
+              }}
+            >
+              {copiedInvite ? "✓ Link Copied!" : "🔗 Invite Link"}
+            </button>
+          )}
           {/* Leave Meal button - for any participant (not just hosts) */}
-          {!isCreateMode && currentUserId && meal.participants[currentUserId] && (meal.participants[currentUserId].accepted ?? true) && (
+          {!isCreateMode && !isPastMeal && currentUserId && meal.participants[currentUserId] && (meal.participants[currentUserId].accepted ?? true) && (
             <button
               onClick={leaveMeal}
               style={{
