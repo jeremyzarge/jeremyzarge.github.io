@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ref, onValue, off } from "firebase/database";
+import { ref, get } from "firebase/database";
 import { rtdb } from "../firebaseClient";
 import { fetchAllUsers, fetchAllApartments } from "../utils";
 import type { Apartment, UserWithId, ApartmentWithData } from "../types";
@@ -25,26 +25,15 @@ export default function MealLedger({ currentUserId, friendIds, onViewProfile }: 
   const [currentUserApartmentId, setCurrentUserApartmentId] = useState<string | null>(null);
   const [view, setView] = useState<"users" | "apartments">("users");
 
-  // Subscribe to real-time meal balance updates
-  useEffect(() => {
-    if (!currentUserId) return;
-
-    const mealRowRef = ref(rtdb, `meal_matrix/${currentUserId}`);
-    const unsub = onValue(mealRowRef, (snap) => {
-      setMeals(snap.exists() ? snap.val() : {});
-    });
-
-    return () => off(mealRowRef, "value", unsub);
-  }, [currentUserId]);
-
-  // Fetch users and apartments on mount
+  // Fetch users, apartments, and compute balances from meal_events
   useEffect(() => {
     if (!currentUserId) return;
 
     async function fetchData() {
-      const [allUsers, allApartments] = await Promise.all([
+      const [allUsers, allApartments, mealsSnap] = await Promise.all([
         fetchAllUsers(),
         fetchAllApartments(),
+        get(ref(rtdb, "meal_events")),
       ]);
 
       setApartments(allApartments);
@@ -55,15 +44,42 @@ export default function MealLedger({ currentUserId, friendIds, onViewProfile }: 
         setCurrentUserApartmentId(currentUser.apartment);
       }
 
-      // Filter to friends OR people with a meal balance (non-placeholder, non-self)
+      // Compute balances and shared-meal partners directly from meal_events
+      const balances: Record<string, number> = {};
+      const sharedMealPartnerIds = new Set<string>();
+
+      if (mealsSnap.exists()) {
+        for (const meal of Object.values(mealsSnap.val()) as any[]) {
+          const participants = meal.participants || {};
+          const mine = participants[currentUserId];
+          if (!mine || !(mine.accepted ?? true)) continue;
+
+          const myRole = mine.role;
+
+          for (const [userId, p] of Object.entries(participants) as any[]) {
+            if (userId === currentUserId || !(p.accepted ?? true)) continue;
+
+            sharedMealPartnerIds.add(userId);
+
+            if (myRole === "host" && p.role === "guest") {
+              balances[userId] = (balances[userId] ?? 0) + 1;
+            } else if (myRole === "guest" && p.role === "host") {
+              balances[userId] = (balances[userId] ?? 0) - 1;
+            }
+          }
+        }
+      }
+
+      setMeals(balances);
+
+      // Filter to friends OR people we've actually shared a meal with
       const friendSet = new Set(friendIds);
-      const mealPartnerIds = new Set(Object.keys(meals ?? {}));
       const otherUsers = allUsers
         .filter((user) =>
           user.id !== currentUserId &&
           user.first_name &&
           !user.placeholder &&
-          (friendSet.has(user.id) || mealPartnerIds.has(user.id))
+          (friendSet.has(user.id) || sharedMealPartnerIds.has(user.id))
         )
         .map((user) => ({
           ...user,
@@ -74,7 +90,7 @@ export default function MealLedger({ currentUserId, friendIds, onViewProfile }: 
     }
 
     fetchData();
-  }, [currentUserId, friendIds, meals]);
+  }, [currentUserId, friendIds]);
 
   if (!meals || !users || !apartments) {
     return <div style={{ padding: 20 }}>Loading Meal Ledger…</div>;
