@@ -197,7 +197,11 @@ body {
     right: 16px !important;
     width: 50px !important;
     height: 50px !important;
-    font-size: 1.5rem !important;
+    padding: 0 !important;
+  }
+
+  .fab-label {
+    display: none;
   }
 
   /* Compact participant table */

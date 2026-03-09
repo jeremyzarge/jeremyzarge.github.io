@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { rtdb } from "../firebaseClient";
 import { ref, get, set, remove, onValue } from "firebase/database";
 import { formatApartmentName } from "../utils";
@@ -12,6 +12,7 @@ interface MyMealsProps {
   apartments: Apartment[];
   mode: "past" | "upcoming";
   authUser: User | null;
+  friendIds?: string[];
   onViewProfile?: (userId: string) => void;
 }
 
@@ -20,7 +21,7 @@ type MealWithId = (Meal | LegacyMeal) & { id: string };
 /**
  * Displays user's meal history with filtering and sorting
  */
-export default function MyMeals({ myId, users, apartments, mode, authUser, onViewProfile }: MyMealsProps) {
+export default function MyMeals({ myId, users, apartments, mode, authUser, friendIds, onViewProfile }: MyMealsProps) {
   const [mealEvents, setMealEvents] = useState<MealWithId[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedMealId, setSelectedMealId] = useState<string | null>(null);
@@ -31,6 +32,28 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, onVie
   const [selectedApartment, setSelectedApartment] = useState("");
   const [hostGuestFilter, setHostGuestFilter] = useState("");
   const [sortBy, setSortBy] = useState("date_desc");
+
+  // Searchable combobox states
+  const [userSearch, setUserSearch] = useState("");
+  const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const [aptSearch, setAptSearch] = useState("");
+  const [aptDropdownOpen, setAptDropdownOpen] = useState(false);
+  const userComboRef = useRef<HTMLDivElement>(null);
+  const aptComboRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (userComboRef.current && !userComboRef.current.contains(e.target as Node)) {
+        setUserDropdownOpen(false);
+      }
+      if (aptComboRef.current && !aptComboRef.current.contains(e.target as Node)) {
+        setAptDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   // Real-time listener for meal events
   useEffect(() => {
@@ -95,8 +118,8 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, onVie
    */
   const isUserAccepted = (meal: MealWithId, userId: string): boolean => {
     if ("participants" in meal && meal.participants?.[userId]) {
-      // Default to true for backward compatibility if field is missing
-      return meal.participants[userId].accepted ?? true;
+      // Must be explicitly true — false or missing both mean "invited, not yet accepted"
+      return meal.participants[userId].accepted === true;
     }
     // Legacy format - all participants are considered accepted
     return true;
@@ -260,53 +283,159 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, onVie
             }}
           />
 
-          <select
-            value={selectedUser}
-            onChange={(e) => setSelectedUser(e.target.value)}
-            style={{
-              padding: "12px 16px",
-              borderRadius: 12,
-              border: "2px solid #93c5fd",
-              background: "linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)",
-              color: "#1e3a8a",
-              fontWeight: 700,
-              fontSize: "0.95rem",
-              transition: "all 0.2s ease",
-              fontFamily: "Inter, sans-serif",
-              cursor: "pointer",
-            }}
-          >
-            <option value="">👤 All Users</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.first_name} {u.last_name}
-              </option>
-            ))}
-          </select>
+          {/* User searchable combobox */}
+          <div ref={userComboRef} style={{ position: "relative" }}>
+            <input
+              placeholder="👤 All Users"
+              value={userSearch}
+              onChange={(e) => {
+                setUserSearch(e.target.value);
+                setUserDropdownOpen(true);
+                if (!e.target.value) setSelectedUser("");
+              }}
+              onFocus={() => setUserDropdownOpen(true)}
+              style={{
+                width: "100%",
+                padding: "12px 16px",
+                borderRadius: 12,
+                border: "2px solid #93c5fd",
+                background: "linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)",
+                color: "#1e3a8a",
+                fontWeight: 700,
+                fontSize: "0.95rem",
+                fontFamily: "Inter, sans-serif",
+                boxSizing: "border-box",
+                outline: "none",
+              }}
+            />
+            {userDropdownOpen && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 4px)",
+                  left: 0,
+                  right: 0,
+                  background: "white",
+                  border: "2px solid #93c5fd",
+                  borderRadius: 12,
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+                  zIndex: 100,
+                  maxHeight: 220,
+                  overflowY: "auto",
+                }}
+              >
+                <div
+                  onMouseDown={() => { setSelectedUser(""); setUserSearch(""); setUserDropdownOpen(false); }}
+                  style={{ padding: "10px 16px", cursor: "pointer", fontWeight: 700, color: "#6b7280", fontSize: "0.9rem" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                >
+                  👤 All Users
+                </div>
+                {users
+                  .filter((u) => `${u.first_name} ${u.last_name}`.toLowerCase().includes(userSearch.toLowerCase()))
+                  .map((u) => (
+                    <div
+                      key={u.id}
+                      onMouseDown={() => {
+                        setSelectedUser(u.id);
+                        setUserSearch(`${u.first_name} ${u.last_name}`);
+                        setUserDropdownOpen(false);
+                      }}
+                      style={{
+                        padding: "10px 16px",
+                        cursor: "pointer",
+                        fontWeight: selectedUser === u.id ? 700 : 500,
+                        color: "#1e3a8a",
+                        fontSize: "0.9rem",
+                        background: selectedUser === u.id ? "#dbeafe" : "transparent",
+                      }}
+                      onMouseEnter={(e) => { if (selectedUser !== u.id) e.currentTarget.style.background = "#eff6ff"; }}
+                      onMouseLeave={(e) => { if (selectedUser !== u.id) e.currentTarget.style.background = "transparent"; }}
+                    >
+                      {u.first_name} {u.last_name}
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
 
-          <select
-            value={selectedApartment}
-            onChange={(e) => setSelectedApartment(e.target.value)}
-            style={{
-              padding: "12px 16px",
-              borderRadius: 12,
-              border: "2px solid #7dd3fc",
-              background: "linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)",
-              color: "#0c4a6e",
-              fontWeight: 700,
-              fontSize: "0.95rem",
-              transition: "all 0.2s ease",
-              fontFamily: "Inter, sans-serif",
-              cursor: "pointer",
-            }}
-          >
-            <option value="">🏠 All Apartments</option>
-            {apartments.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
+          {/* Apartment searchable combobox */}
+          <div ref={aptComboRef} style={{ position: "relative" }}>
+            <input
+              placeholder="🏠 All Apartments"
+              value={aptSearch}
+              onChange={(e) => {
+                setAptSearch(e.target.value);
+                setAptDropdownOpen(true);
+                if (!e.target.value) setSelectedApartment("");
+              }}
+              onFocus={() => setAptDropdownOpen(true)}
+              style={{
+                width: "100%",
+                padding: "12px 16px",
+                borderRadius: 12,
+                border: "2px solid #7dd3fc",
+                background: "linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)",
+                color: "#0c4a6e",
+                fontWeight: 700,
+                fontSize: "0.95rem",
+                fontFamily: "Inter, sans-serif",
+                boxSizing: "border-box",
+                outline: "none",
+              }}
+            />
+            {aptDropdownOpen && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 4px)",
+                  left: 0,
+                  right: 0,
+                  background: "white",
+                  border: "2px solid #7dd3fc",
+                  borderRadius: 12,
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+                  zIndex: 100,
+                  maxHeight: 220,
+                  overflowY: "auto",
+                }}
+              >
+                <div
+                  onMouseDown={() => { setSelectedApartment(""); setAptSearch(""); setAptDropdownOpen(false); }}
+                  style={{ padding: "10px 16px", cursor: "pointer", fontWeight: 700, color: "#6b7280", fontSize: "0.9rem" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "#f0f9ff"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                >
+                  🏠 All Apartments
+                </div>
+                {apartments
+                  .filter((a) => a.name.toLowerCase().includes(aptSearch.toLowerCase()))
+                  .map((a) => (
+                    <div
+                      key={a.id}
+                      onMouseDown={() => {
+                        setSelectedApartment(a.id);
+                        setAptSearch(a.name);
+                        setAptDropdownOpen(false);
+                      }}
+                      style={{
+                        padding: "10px 16px",
+                        cursor: "pointer",
+                        fontWeight: selectedApartment === a.id ? 700 : 500,
+                        color: "#0c4a6e",
+                        fontSize: "0.9rem",
+                        background: selectedApartment === a.id ? "#e0f2fe" : "transparent",
+                      }}
+                      onMouseEnter={(e) => { if (selectedApartment !== a.id) e.currentTarget.style.background = "#f0f9ff"; }}
+                      onMouseLeave={(e) => { if (selectedApartment !== a.id) e.currentTarget.style.background = "transparent"; }}
+                    >
+                      {a.name}
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
 
           <select
             value={hostGuestFilter}
@@ -536,6 +665,7 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, onVie
           mealId={selectedMealId}
           authUser={authUser}
           currentUserId={myId}
+          friendIds={friendIds}
           onClose={() => setSelectedMealId(null)}
           onViewProfile={onViewProfile}
         />

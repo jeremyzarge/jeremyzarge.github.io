@@ -403,7 +403,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     // Prevent last host from leaving
     if (myParticipant?.role === "host") {
       const otherAcceptedHosts = Object.entries(meal.participants)
-        .filter(([id, p]) => id !== currentUserId && p.role === "host" && (p.accepted ?? true));
+        .filter(([id, p]) => id !== currentUserId && p.role === "host" && p.accepted === true);
 
       if (otherAcceptedHosts.length === 0) {
         alert("You cannot leave as the last host. Delete the meal or assign another host first.");
@@ -592,9 +592,9 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
   // Calculate allergen counts for accepted participants only
   const allergenCounts = useMemo(() => {
     if (!meal) return {};
-    // Only count accepted participants (use ?? true for backward compatibility)
+    // Only count accepted participants
     const acceptedParticipantIds = Object.entries(meal.participants)
-      .filter(([_, p]) => p.accepted ?? true)
+      .filter(([_, p]) => p.accepted === true)
       .map(([id]) => id);
     return getAllergenCounts(acceptedParticipantIds, users);
   }, [meal, users]);
@@ -625,11 +625,11 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
 
   // Separate accepted participants from invited (pending)
   const acceptedParticipants = useMemo(() => {
-    return participantsWithInfo.filter(({ participant }) => participant.accepted ?? true);
+    return participantsWithInfo.filter(({ participant }) => participant.accepted === true);
   }, [participantsWithInfo]);
 
   const invitedParticipants = useMemo(() => {
-    return participantsWithInfo.filter(({ participant }) => !(participant.accepted ?? true));
+    return participantsWithInfo.filter(({ participant }) => participant.accepted !== true);
   }, [participantsWithInfo]);
 
   if (loading || !meal) {
@@ -1244,7 +1244,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
               💬 Messages
             </h4>
             {/* Check if current user is accepted - invited users cannot view messages */}
-            {currentUserId && meal.participants[currentUserId] && !(meal.participants[currentUserId].accepted ?? true) ? (
+            {currentUserId && meal.participants[currentUserId] && meal.participants[currentUserId].accepted !== true ? (
               <div
                 style={{
                   padding: 32,
@@ -1394,7 +1394,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
             </button>
           )}
           {/* Leave Meal button - for any participant (not just hosts) */}
-          {!isCreateMode && !isPastMeal && currentUserId && meal.participants[currentUserId] && (meal.participants[currentUserId].accepted ?? true) && (
+          {!isCreateMode && !isPastMeal && currentUserId && meal.participants[currentUserId] && meal.participants[currentUserId].accepted === true && (
             <button
               onClick={leaveMeal}
               style={{

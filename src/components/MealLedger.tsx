@@ -9,6 +9,7 @@ interface MealLedgerProps {
   currentUserId: string;
   friendIds: string[];
   onViewProfile: (userId: string) => void;
+  onViewApartment?: (apartmentId: string) => void;
 }
 
 type UserWithApartment = Omit<UserWithId, "apartment"> & {
@@ -18,7 +19,7 @@ type UserWithApartment = Omit<UserWithId, "apartment"> & {
 /**
  * Displays meal balance ledger with user and apartment views
  */
-export default function MealLedger({ currentUserId, friendIds, onViewProfile }: MealLedgerProps) {
+export default function MealLedger({ currentUserId, friendIds, onViewProfile, onViewApartment }: MealLedgerProps) {
   const [meals, setMeals] = useState<Record<string, number> | null>(null);
   const [users, setUsers] = useState<UserWithApartment[] | null>(null);
   const [apartments, setApartments] = useState<Apartment[] | null>(null);
@@ -48,16 +49,20 @@ export default function MealLedger({ currentUserId, friendIds, onViewProfile }: 
       const balances: Record<string, number> = {};
       const sharedMealPartnerIds = new Set<string>();
 
+      const now = new Date();
+
       if (mealsSnap.exists()) {
         for (const meal of Object.values(mealsSnap.val()) as any[]) {
+          // Only count past meals where the current user accepted
+          if (!meal.datetime || new Date(meal.datetime) >= now) continue;
           const participants = meal.participants || {};
           const mine = participants[currentUserId];
-          if (!mine || !(mine.accepted ?? true)) continue;
+          if (!mine || mine.accepted !== true) continue;
 
           const myRole = mine.role;
 
           for (const [userId, p] of Object.entries(participants) as any[]) {
-            if (userId === currentUserId || !(p.accepted ?? true)) continue;
+            if (userId === currentUserId || p.accepted !== true) continue;
 
             sharedMealPartnerIds.add(userId);
 
@@ -167,7 +172,7 @@ export default function MealLedger({ currentUserId, friendIds, onViewProfile }: 
       </div>
 
       {view === "users" && (
-        <MealList meals={meals} otherUsers={users} showApartment={true} onViewProfile={onViewProfile} />
+        <MealList meals={meals} otherUsers={users} showApartment={true} onViewProfile={onViewProfile} onViewApartment={onViewApartment} />
       )}
 
       {view === "apartments" && (
@@ -182,6 +187,7 @@ export default function MealLedger({ currentUserId, friendIds, onViewProfile }: 
             last_name: "",
           }))}
           apartmentMode={true}
+          onViewApartment={onViewApartment}
         />
       )}
     </div>

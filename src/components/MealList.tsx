@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { formatNumber } from "../utils";
 import ClickableUserName from "./ClickableUserName";
 
@@ -12,6 +13,7 @@ interface MealListProps {
   showApartment?: boolean;
   apartmentMode?: boolean;
   onViewProfile?: (userId: string) => void;
+  onViewApartment?: (apartmentId: string) => void;
 }
 
 /**
@@ -23,6 +25,7 @@ export default function MealList({
   showApartment,
   apartmentMode,
   onViewProfile,
+  onViewApartment,
 }: MealListProps) {
   return (
     <div
@@ -65,12 +68,18 @@ export default function MealList({
                     lastName={u.last_name}
                     onClick={onViewProfile}
                   />
+                ) : onViewApartment && apartmentMode ? (
+                  <ApartmentLink name={u.first_name} onClick={() => onViewApartment(u.id)} />
                 ) : (
                   <>{u.first_name} {u.last_name}</>
                 )}
               </td>
               {showApartment && !apartmentMode && (
-                <td style={{ padding: 12 }}>{u.apartment?.name ?? "-"}</td>
+                <td style={{ padding: 12 }}>
+                  {onViewApartment && u.apartment
+                    ? <ApartmentLink name={u.apartment.name} onClick={() => onViewApartment(u.apartment!.id)} />
+                    : u.apartment?.name ?? "-"}
+                </td>
               )}
               <td style={{ padding: 12 }}>{formatNumber(meals[u.id] ?? 0)}</td>
             </tr>
@@ -78,5 +87,30 @@ export default function MealList({
         </tbody>
       </table>
     </div>
+  );
+}
+
+function ApartmentLink({ name, onClick }: { name: string; onClick: () => void }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        background: "none",
+        border: "none",
+        padding: 0,
+        margin: 0,
+        font: "inherit",
+        color: "#059669",
+        fontWeight: 700,
+        cursor: "pointer",
+        textDecoration: hovered ? "underline" : "none",
+      }}
+    >
+      {name}
+    </button>
   );
 }

@@ -14,6 +14,7 @@ import FloatingAddButton from "./components/FloatingAddButton";
 import ProfileEditor from "./components/ProfileEditor";
 import FriendsTab from "./components/FriendsTab";
 import UserProfileView from "./components/UserProfileView";
+import ApartmentProfileView from "./components/ApartmentProfileView";
 import type { UserProfile, Apartment, UserWithId, UserRelationship, CanBring, Allergies } from "./types";
 import { claimMealInvite } from "./inviteService";
 
@@ -53,6 +54,8 @@ export default function App() {
   const [showCreate, setShowCreate] = useState(false);
   const [showProfileEditor, setShowProfileEditor] = useState(false);
   const [viewingProfileUserId, setViewingProfileUserId] = useState<string | null>(null);
+  const [viewingMealId, setViewingMealId] = useState<string | null>(null);
+  const [viewingApartmentId, setViewingApartmentId] = useState<string | null>(null);
 
   // Cache for users and apartments (loaded once when profile exists)
   const [users, setUsers] = useState<UserWithId[]>([]);
@@ -347,6 +350,7 @@ export default function App() {
           currentUserId={myId}
           friendIds={friendIds}
           onViewProfile={(id: string) => setViewingProfileUserId(id)}
+          onViewApartment={(id: string) => setViewingApartmentId(id)}
         />
       )}
       {activeTab === "past" && (
@@ -356,6 +360,7 @@ export default function App() {
           apartments={apartments}
           mode="past"
           authUser={authUser}
+          friendIds={friendIds}
           onViewProfile={(id: string) => setViewingProfileUserId(id)}
         />
       )}
@@ -366,6 +371,7 @@ export default function App() {
           apartments={apartments}
           mode="upcoming"
           authUser={authUser}
+          friendIds={friendIds}
           onViewProfile={(id: string) => setViewingProfileUserId(id)}
         />
       )}
@@ -411,6 +417,42 @@ export default function App() {
           relationships={relationships}
           onClose={() => setViewingProfileUserId(null)}
           onViewProfile={(id: string) => setViewingProfileUserId(id)}
+          onViewMeal={(mealId: string) => {
+            setViewingProfileUserId(null);
+            setViewingMealId(mealId);
+          }}
+          onViewApartment={(aptId: string) => {
+            setViewingProfileUserId(null);
+            setViewingApartmentId(aptId);
+          }}
+        />
+      )}
+
+      {viewingMealId && (
+        <MealEditor
+          mealId={viewingMealId}
+          authUser={authUser}
+          currentUserId={myId}
+          friendIds={friendIds}
+          onViewProfile={(id: string) => setViewingProfileUserId(id)}
+          onClose={() => setViewingMealId(null)}
+        />
+      )}
+
+      {viewingApartmentId && (
+        <ApartmentProfileView
+          apartmentId={viewingApartmentId}
+          currentUserId={myId}
+          allUsers={users}
+          onClose={() => setViewingApartmentId(null)}
+          onViewProfile={(id: string) => {
+            setViewingApartmentId(null);
+            setViewingProfileUserId(id);
+          }}
+          onViewMeal={(mealId: string) => {
+            setViewingApartmentId(null);
+            setViewingMealId(mealId);
+          }}
         />
       )}
     </div>

@@ -20,6 +20,8 @@ interface UserProfileViewProps {
   relationships: Record<string, UserRelationship>;
   onClose: () => void;
   onViewProfile: (userId: string) => void;
+  onViewMeal?: (mealId: string) => void;
+  onViewApartment?: (apartmentId: string) => void;
 }
 
 const foodLabels: Record<string, string> = {
@@ -47,11 +49,15 @@ export default function UserProfileView({
   relationships,
   onClose,
   onViewProfile,
+  onViewMeal,
+  onViewApartment,
 }: UserProfileViewProps) {
   const [apartment, setApartment] = useState<Apartment | null>(null);
   const [mutualFriendIds, setMutualFriendIds] = useState<string[]>([]);
   const [commonMeals, setCommonMeals] = useState<Array<{ id: string; title: string; datetime: string }>>([]);
   const [actionLoading, setActionLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [pastMealsShown, setPastMealsShown] = useState(5);
 
   const user = allUsers.find((u) => u.id === userId);
   const rel = relationships[userId];
@@ -59,25 +65,32 @@ export default function UserProfileView({
 
   useEffect(() => {
     if (!user) return;
-    fetchAllApartments().then((apts) => {
-      setApartment(apts.find((a) => a.id === user.apartment) || null);
-    });
-    getMutualFriendIds(relationships, userId).then(setMutualFriendIds);
+    setLoading(true);
 
-    // Fetch common meals between currentUserId and this user
-    get(ref(rtdb, "meal_events")).then((snap) => {
-      if (!snap.exists()) return;
-      const allMeals = snap.val() as Record<string, Meal>;
-      const shared: Array<{ id: string; title: string; datetime: string }> = [];
-      for (const [mealId, meal] of Object.entries(allMeals)) {
-        const participants = meal.participants || {};
-        if (participants[currentUserId] && participants[userId]) {
-          shared.push({ id: mealId, title: meal.title || "Untitled", datetime: meal.datetime });
+    Promise.all([
+      fetchAllApartments(),
+      getMutualFriendIds(relationships, userId),
+      get(ref(rtdb, "meal_events")),
+    ]).then(([apts, mutualIds, mealsSnap]) => {
+      setApartment(apts.find((a) => a.id === user.apartment) || null);
+      setMutualFriendIds(mutualIds);
+
+      if (mealsSnap.exists()) {
+        const allMeals = mealsSnap.val() as Record<string, Meal>;
+        const shared: Array<{ id: string; title: string; datetime: string }> = [];
+        for (const [mealId, meal] of Object.entries(allMeals)) {
+          const participants = meal.participants || {};
+          const mine = participants[currentUserId];
+          const theirs = participants[userId];
+          if (mine?.accepted === true && theirs?.accepted === true) {
+            shared.push({ id: mealId, title: meal.title || "Untitled", datetime: meal.datetime });
+          }
         }
+        shared.sort((a, b) => new Date(b.datetime).getTime() - new Date(a.datetime).getTime());
+        setCommonMeals(shared);
       }
-      // Sort by date descending (most recent first)
-      shared.sort((a, b) => new Date(b.datetime).getTime() - new Date(a.datetime).getTime());
-      setCommonMeals(shared);
+
+      setLoading(false);
     });
   }, [userId, user, relationships, currentUserId]);
 
@@ -150,6 +163,12 @@ export default function UserProfileView({
           backgroundClip: "padding-box, border-box",
         }}
       >
+        {loading ? (
+          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", padding: "60px 0", color: "#9ca3af", fontSize: "1rem" }}>
+            Loading…
+          </div>
+        ) : <>
+
         {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <h2
@@ -185,7 +204,11 @@ export default function UserProfileView({
         <div style={{ color: "#6b7280", fontSize: "1.05rem" }}>
           {apartment ? (
             <>
-              <span style={{ fontWeight: 700 }}>{apartment.name}</span>
+              {onViewApartment ? (
+                <ApartmentLink name={apartment.name} onClick={() => onViewApartment(apartment.id)} />
+              ) : (
+                <span style={{ fontWeight: 700, color: "#374151" }}>{apartment.name}</span>
+              )}
               <span> — {apartment.address}</span>
             </>
           ) : (
@@ -245,37 +268,85 @@ export default function UserProfileView({
         )}
 
         {/* Common Meals */}
-        {userId !== currentUserId && (
-          <div>
-            <SectionTitle text={`Common Meals (${commonMeals.length})`} />
-            {commonMeals.length > 0 ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 160, overflowY: "auto" }}>
-                {commonMeals.map((m) => (
-                  <div
-                    key={m.id}
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      padding: "8px 12px",
-                      borderRadius: 10,
-                      background: "#f0fdf4",
-                      border: "1px solid #bbf7d0",
-                      fontSize: "0.85rem",
-                    }}
-                  >
-                    <span style={{ fontWeight: 700, color: "#374151" }}>{m.title}</span>
-                    <span style={{ color: "#6b7280", fontSize: "0.75rem", fontWeight: 600 }}>
-                      {new Date(m.datetime).toLocaleDateString()}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p style={{ color: "#9ca3af", margin: 0, fontSize: "0.85rem" }}>No common meals</p>
-            )}
-          </div>
-        )}
+        {userId !== currentUserId && (() => {
+          const now = new Date();
+          const upcoming = commonMeals.filter((m) => new Date(m.datetime) >= now);
+          const past = commonMeals.filter((m) => new Date(m.datetime) < now);
+          const mealRow = (m: { id: string; title: string; datetime: string }) => (
+            <div
+              key={m.id}
+              onClick={() => onViewMeal?.(m.id)}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "8px 12px",
+                borderRadius: 10,
+                background: "#f0fdf4",
+                border: "1px solid #bbf7d0",
+                fontSize: "0.85rem",
+                cursor: onViewMeal ? "pointer" : "default",
+                transition: "background 0.15s",
+              }}
+              onMouseEnter={(e) => { if (onViewMeal) e.currentTarget.style.background = "#dcfce7"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "#f0fdf4"; }}
+            >
+              <span style={{ fontWeight: 700, color: "#374151" }}>{m.title}</span>
+              <span style={{ color: "#6b7280", fontSize: "0.75rem", fontWeight: 600 }}>
+                {new Date(m.datetime).toLocaleDateString()}
+              </span>
+            </div>
+          );
+          return (
+            <div>
+              <SectionTitle text={`Common Meals (${commonMeals.length})`} />
+              {commonMeals.length === 0 ? (
+                <p style={{ color: "#9ca3af", margin: 0, fontSize: "0.85rem" }}>No common meals</p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {upcoming.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#6b7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        Upcoming ({upcoming.length})
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {upcoming.map(mealRow)}
+                      </div>
+                    </div>
+                  )}
+                  {past.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#6b7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        Past ({past.length})
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {past.slice(0, pastMealsShown).map(mealRow)}
+                      </div>
+                      {past.length > pastMealsShown && (
+                        <button
+                          onClick={() => setPastMealsShown((n) => n + 5)}
+                          style={{
+                            marginTop: 6,
+                            background: "none",
+                            border: "none",
+                            color: "#764ba2",
+                            fontWeight: 700,
+                            fontSize: "0.85rem",
+                            cursor: "pointer",
+                            padding: 0,
+                            textDecoration: "underline",
+                          }}
+                        >
+                          Load more ({past.length - pastMealsShown} remaining)
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Friend Action */}
         {userId !== currentUserId && (
@@ -326,6 +397,7 @@ export default function UserProfileView({
             )}
           </div>
         )}
+        </>}
       </div>
     </div>
   );
@@ -397,6 +469,31 @@ function ActionButton({
       }}
     >
       {loading ? "..." : label}
+    </button>
+  );
+}
+
+function ApartmentLink({ name, onClick }: { name: string; onClick: () => void }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        background: "none",
+        border: "none",
+        padding: 0,
+        margin: 0,
+        font: "inherit",
+        color: "#059669",
+        fontWeight: 700,
+        cursor: "pointer",
+        textDecoration: hovered ? "underline" : "none",
+      }}
+    >
+      {name}
     </button>
   );
 }
