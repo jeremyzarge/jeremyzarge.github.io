@@ -91,6 +91,16 @@ body {
     padding: 8px 14px !important;
   }
 
+  /* Member list buttons must not get the global padding — they're inline text links */
+  .member-list button {
+    padding: 0 !important;
+    gap: 0 !important;
+  }
+
+  .member-list {
+    gap: 3px !important;
+  }
+
   /* Compact table cells on mobile */
   table th,
   table td {

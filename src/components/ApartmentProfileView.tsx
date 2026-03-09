@@ -178,7 +178,7 @@ export default function ApartmentProfileView({
             <div>
               <SectionTitle text={`Members (${members.length})`} />
               {members.length > 0 ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
+                <div className="member-list" style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
                   {members.map((u) => (
                     <ClickableUserName
                       key={u.id}
@@ -186,7 +186,7 @@ export default function ApartmentProfileView({
                       firstName={u.first_name}
                       lastName={u.last_name}
                       onClick={onViewProfile}
-                      style={{ fontSize: "0.95rem" }}
+                      style={{ fontSize: "0.95rem", lineHeight: 1 }}
                     />
                   ))}
                 </div>
@@ -204,7 +204,7 @@ export default function ApartmentProfileView({
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                   {upcomingMeals.length > 0 && (
                     <div>
-                      <SubLabel text={`Upcoming (${upcomingMeals.length})`} />
+                      <SubLabel text={`Upcoming Meals (${upcomingMeals.length})`} />
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                         {upcomingMeals.map(mealRow)}
                       </div>
@@ -212,7 +212,7 @@ export default function ApartmentProfileView({
                   )}
                   {pastMeals.length > 0 && (
                     <div>
-                      <SubLabel text={`Past (${pastMeals.length})`} />
+                      <SubLabel text={`Past Meals (${pastMeals.length})`} />
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                         {pastMeals.slice(0, pastMealsShown).map(mealRow)}
                       </div>

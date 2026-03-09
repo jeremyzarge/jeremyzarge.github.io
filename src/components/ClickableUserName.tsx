@@ -37,6 +37,8 @@ export default function ClickableUserName({
         cursor: "pointer",
         textDecoration: hovered ? "underline" : "none",
         textAlign: "left",
+        lineHeight: 1.4,
+        minHeight: 0,
         ...style,
       }}
     >
