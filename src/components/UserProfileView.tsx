@@ -491,6 +491,7 @@ function ApartmentLink({ name, onClick }: { name: string; onClick: () => void })
         fontWeight: 700,
         cursor: "pointer",
         textDecoration: hovered ? "underline" : "none",
+        textAlign: "left",
       }}
     >
       {name}

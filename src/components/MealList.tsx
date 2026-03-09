@@ -60,7 +60,7 @@ export default function MealList({
                 transition: "background 0.2s",
               }}
             >
-              <td style={{ padding: 12 }}>
+              <td style={{ padding: 12, textAlign: "left" }}>
                 {onViewProfile && !apartmentMode ? (
                   <ClickableUserName
                     userId={u.id}
@@ -75,13 +75,13 @@ export default function MealList({
                 )}
               </td>
               {showApartment && !apartmentMode && (
-                <td style={{ padding: 12 }}>
+                <td style={{ padding: 12, textAlign: "left" }}>
                   {onViewApartment && u.apartment
                     ? <ApartmentLink name={u.apartment.name} onClick={() => onViewApartment(u.apartment!.id)} />
                     : u.apartment?.name ?? "-"}
                 </td>
               )}
-              <td style={{ padding: 12 }}>{formatNumber(meals[u.id] ?? 0)}</td>
+              <td style={{ padding: 12, textAlign: "left" }}>{formatNumber(meals[u.id] ?? 0)}</td>
             </tr>
           ))}
         </tbody>
@@ -108,6 +108,7 @@ function ApartmentLink({ name, onClick }: { name: string; onClick: () => void })
         fontWeight: 700,
         cursor: "pointer",
         textDecoration: hovered ? "underline" : "none",
+        textAlign: "left",
       }}
     >
       {name}
