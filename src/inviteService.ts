@@ -23,7 +23,6 @@ export async function claimMealInvite(
     food: "none",
     specifics: "",
     role: "guest",
-    accepted: false,
   };
   await set(participantRef, participant);
 

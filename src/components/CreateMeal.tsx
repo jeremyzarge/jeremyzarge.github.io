@@ -94,12 +94,9 @@ export default function CreateMeal({ onCreated, onCancel }: CreateMealProps) {
 
     const participantsMap: Record<string, MealParticipant> = {};
     participants.forEach((p) => {
-      participantsMap[p.userId] = {
-        food: "none",
-        specifics: "",
-        role: p.role,
-        accepted: p.role === "host", // Hosts auto-accept, guests need to accept
-      };
+      participantsMap[p.userId] = p.role === "host"
+        ? { food: "none", specifics: "", role: "host", accepted: true }
+        : { food: "none", specifics: "", role: "guest" };
     });
 
     const mealObj: Meal = {

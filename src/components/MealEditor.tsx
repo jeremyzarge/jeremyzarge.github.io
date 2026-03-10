@@ -100,6 +100,10 @@ interface MealEditorProps {
   currentUserId: string | null;
   friendIds?: string[];
   onViewProfile?: (userId: string) => void;
+  /** Read-only invite preview — user can only Accept or Reject */
+  invitedMode?: boolean;
+  onAccept?: () => void;
+  onReject?: () => void;
 }
 
 type MealWithId = Meal & { id: string };
@@ -107,7 +111,7 @@ type MealWithId = Meal & { id: string };
 /**
  * Modal editor for creating new meals or modifying existing ones
  */
-export default function MealEditor({ mealId, onClose, onCreated, authUser: _authUser, currentUserId, friendIds, onViewProfile }: MealEditorProps) {
+export default function MealEditor({ mealId, onClose, onCreated, authUser: _authUser, currentUserId, friendIds, onViewProfile, invitedMode, onAccept, onReject }: MealEditorProps) {
   const isCreateMode = !mealId;
   const [meal, setMeal] = useState<Meal | null>(null);
   const [originalMeal, setOriginalMeal] = useState<Meal | null>(null); // Track original for change detection
@@ -319,11 +323,12 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
 
   // Check if current user is a host (in create mode, user can always edit)
   const isHost = useMemo(() => {
+    if (invitedMode) return false; // Read-only preview — no editing
     if (isCreateMode) return true; // Creator can always edit
     if (!meal || !currentUserId) return false;
     const participant = meal.participants[currentUserId];
     return participant && participant.role === "host";
-  }, [meal, currentUserId, isCreateMode]);
+  }, [meal, currentUserId, isCreateMode, invitedMode]);
 
   // Check if meal is in the past
   const isPastMeal = useMemo(() => {
@@ -357,10 +362,9 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     const user = users.find((u) => u.id === selectedUserId);
     if (!user) return;
 
-    // Auto-determine role based on apartment
+    // Auto-determine role based on apartment, but never auto-accept —
+    // every added participant must accept their invitation individually
     const role = user.apartment === meal.host_apartment_id ? "host" : "guest";
-    // Hosts are auto-accepted, guests must accept the invitation
-    const accepted = role === "host";
 
     setMeal((prev) => {
       if (!prev) return prev;
@@ -368,7 +372,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         ...prev,
         participants: {
           ...prev.participants,
-          [selectedUserId]: { food: "none", specifics: "", role, accepted },
+          [selectedUserId]: { food: "none", specifics: "", role },
         },
       };
     });
@@ -466,10 +470,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         ...prev,
         participants: {
           ...prev.participants,
-          [userId]: {
-            ...p,
-            role: p.role === "host" ? "guest" : "host",
-          },
+          [userId]: { ...p, role: p.role === "host" ? "guest" : "host" },
         },
       };
     });
@@ -687,7 +688,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
 
         {/* Tabs */}
         <div className="tab-bar" style={{ display: "flex", gap: 10, marginBottom: 24, background: "#f3f4f6", padding: 6, borderRadius: 50, width: "fit-content" }}>
-          {(isCreateMode
+          {(isCreateMode || invitedMode
             ? (["info", "participants"] as const)
             : (["info", "participants", "messages"] as const)
           ).map((tab) => (
@@ -1162,7 +1163,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
             )}
 
             {/* Invited (pending) participants section */}
-            {invitedParticipants.length > 0 && (
+            {invitedParticipants.length > 0 && !isPastMeal && (
               <div style={{ marginTop: 24 }}>
                 <h4 style={{ marginBottom: 16, fontWeight: 800, fontSize: "1.05rem", color: "#9ca3af" }}>
                   Invited ({invitedParticipants.length})
@@ -1357,6 +1358,44 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           >
             Cancel
           </button>
+          {invitedMode && (
+            <>
+              <button
+                onClick={onAccept}
+                style={{
+                  padding: "12px 24px",
+                  borderRadius: 12,
+                  border: "none",
+                  background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                  color: "white",
+                  cursor: "pointer",
+                  fontWeight: 800,
+                  fontSize: "1rem",
+                  boxShadow: "0 4px 12px rgba(16, 185, 129, 0.3)",
+                  transition: "all 0.2s ease",
+                }}
+              >
+                Accept
+              </button>
+              <button
+                onClick={onReject}
+                style={{
+                  padding: "12px 24px",
+                  borderRadius: 12,
+                  border: "none",
+                  background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
+                  color: "white",
+                  cursor: "pointer",
+                  fontWeight: 800,
+                  fontSize: "1rem",
+                  boxShadow: "0 4px 12px rgba(239, 68, 68, 0.3)",
+                  transition: "all 0.2s ease",
+                }}
+              >
+                Reject
+              </button>
+            </>
+          )}
           {isHost && !isCreateMode && !isPastMeal && mealId && currentUserId && (
             <button
               type="button"

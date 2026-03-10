@@ -25,6 +25,7 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
   const [mealEvents, setMealEvents] = useState<MealWithId[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedMealId, setSelectedMealId] = useState<string | null>(null);
+  const [viewingInvitedMealId, setViewingInvitedMealId] = useState<string | null>(null);
 
   // Filter states
   const [searchText, setSearchText] = useState("");
@@ -510,6 +511,7 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
               <div
                 className="invitation-row"
                 key={m.id}
+                onClick={() => setViewingInvitedMealId(m.id)}
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
@@ -519,7 +521,10 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
                   borderRadius: 12,
                   marginBottom: 8,
                   boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
+                  cursor: "pointer",
                 }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "#fef9c3")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "white")}
               >
                 <div>
                   <div style={{ fontWeight: 700, fontSize: "1.1rem", color: "#374151" }}>
@@ -667,6 +672,25 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
           currentUserId={myId}
           friendIds={friendIds}
           onClose={() => setSelectedMealId(null)}
+          onViewProfile={onViewProfile}
+        />
+      )}
+
+      {viewingInvitedMealId && (
+        <MealEditor
+          mealId={viewingInvitedMealId}
+          authUser={authUser}
+          currentUserId={myId}
+          invitedMode
+          onClose={() => setViewingInvitedMealId(null)}
+          onAccept={() => {
+            handleAcceptInvite(viewingInvitedMealId);
+            setViewingInvitedMealId(null);
+          }}
+          onReject={() => {
+            handleRejectInvite(viewingInvitedMealId);
+            setViewingInvitedMealId(null);
+          }}
           onViewProfile={onViewProfile}
         />
       )}

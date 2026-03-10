@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from "react";
-import { ref, get } from "firebase/database";
+import { ref, get, set, remove } from "firebase/database";
 import type { User } from "firebase/auth";
 import firebaseClient, { rtdb, ensureUserNumericMapping, createNumericApartmentId, loginWithGoogle } from "./firebaseClient";
 import { createOrUpdateUserNumeric } from "./index";
@@ -55,7 +55,9 @@ export default function App() {
   const [showProfileEditor, setShowProfileEditor] = useState(false);
   const [viewingProfileUserId, setViewingProfileUserId] = useState<string | null>(null);
   const [viewingMealId, setViewingMealId] = useState<string | null>(null);
+  const [viewingInvitedMealId, setViewingInvitedMealId] = useState<string | null>(null);
   const [viewingApartmentId, setViewingApartmentId] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
 
   // Cache for users and apartments (loaded once when profile exists)
   const [users, setUsers] = useState<UserWithId[]>([]);
@@ -115,7 +117,7 @@ export default function App() {
           const token = pendingInviteToken.current;
           pendingInviteToken.current = null;
           const mealId = await claimMealInvite(token, numericId);
-          if (mealId) setActiveTab("upcoming");
+          if (mealId) await handleInviteNavigation(mealId, numericId);
         }
       }
 
@@ -178,10 +180,43 @@ export default function App() {
       const token = pendingInviteToken.current;
       pendingInviteToken.current = null;
       const mealId = await claimMealInvite(token, myId);
-      if (mealId) setActiveTab("upcoming");
+      if (mealId) await handleInviteNavigation(mealId, myId);
     }
 
     setLoading(false);
+  }
+
+  /**
+   * After claiming an invite link, decide what to open based on meal state
+   */
+  async function handleInviteNavigation(mealId: string, userId: string) {
+    const snap = await get(ref(rtdb, `meal_events/${mealId}`));
+    if (!snap.exists()) {
+      setInviteError("This invite link is no longer valid.");
+      return;
+    }
+    const meal = snap.val();
+    const isPast = meal.datetime && new Date(meal.datetime) < new Date();
+    const participant = meal.participants?.[userId];
+    const isAccepted = participant?.accepted === true;
+
+    if (isPast) {
+      if (isAccepted) {
+        // Attended — open in past meals view
+        setActiveTab("past");
+        setViewingMealId(mealId);
+      } else {
+        // Didn't attend — invalid link
+        setInviteError("This meal already happened and you weren't a participant.");
+      }
+    } else {
+      setActiveTab("upcoming");
+      if (isAccepted) {
+        setViewingMealId(mealId);
+      } else {
+        setViewingInvitedMealId(mealId);
+      }
+    }
   }
 
   /**
@@ -436,6 +471,72 @@ export default function App() {
           friendIds={friendIds}
           onViewProfile={(id: string) => setViewingProfileUserId(id)}
           onClose={() => setViewingMealId(null)}
+        />
+      )}
+
+      {inviteError && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+          onClick={() => setInviteError(null)}
+        >
+          <div
+            style={{
+              background: "white",
+              borderRadius: 16,
+              padding: 32,
+              maxWidth: 400,
+              textAlign: "center",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ fontSize: "2.5rem", marginBottom: 12 }}>⚠️</div>
+            <h3 style={{ margin: "0 0 12px", fontWeight: 800, color: "#374151" }}>Invalid Invite Link</h3>
+            <p style={{ margin: "0 0 24px", color: "#6b7280" }}>{inviteError}</p>
+            <button
+              onClick={() => setInviteError(null)}
+              style={{
+                padding: "10px 28px",
+                borderRadius: 12,
+                border: "none",
+                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                color: "white",
+                fontWeight: 700,
+                cursor: "pointer",
+                fontSize: "1rem",
+              }}
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
+
+      {viewingInvitedMealId && myId && (
+        <MealEditor
+          mealId={viewingInvitedMealId}
+          authUser={authUser}
+          currentUserId={myId}
+          invitedMode
+          onClose={() => setViewingInvitedMealId(null)}
+          onAccept={async () => {
+            await set(ref(rtdb, `meal_events/${viewingInvitedMealId}/participants/${myId}/accepted`), true);
+            setViewingInvitedMealId(null);
+          }}
+          onReject={async () => {
+            if (!window.confirm("Are you sure you want to reject this invitation?")) return;
+            await remove(ref(rtdb, `meal_events/${viewingInvitedMealId}/participants/${myId}`));
+            setViewingInvitedMealId(null);
+          }}
+          onViewProfile={(id: string) => setViewingProfileUserId(id)}
         />
       )}
 
