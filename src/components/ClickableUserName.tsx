@@ -39,6 +39,10 @@ export default function ClickableUserName({
         textAlign: "left",
         lineHeight: 1.4,
         minHeight: 0,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        maxWidth: "100%",
         ...style,
       }}
     >

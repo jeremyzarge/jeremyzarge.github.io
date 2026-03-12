@@ -309,7 +309,7 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
                 outline: "none",
               }}
             />
-            {userDropdownOpen && (
+            {userDropdownOpen && userSearch.trim() && (
               <div
                 style={{
                   position: "absolute",
@@ -386,7 +386,7 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
                 outline: "none",
               }}
             />
-            {aptDropdownOpen && (
+            {aptDropdownOpen && aptSearch.trim() && (
               <div
                 style={{
                   position: "absolute",
@@ -527,7 +527,7 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
                 onMouseLeave={(e) => (e.currentTarget.style.background = "white")}
               >
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: "1.1rem", color: "#374151" }}>
+                  <div style={{ fontWeight: 700, fontSize: "1.1rem", color: "#374151", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {m.title}
                   </div>
                   <div style={{ fontSize: "0.9rem", color: "#6b7280" }}>
@@ -635,7 +635,9 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
                     onMouseEnter={(e) => (e.currentTarget.style.background = "#fef3c7")}
                     onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                   >
-                    <td style={{ padding: 12 }}>{m.title}</td>
+                    <td style={{ padding: 12, maxWidth: 200 }}>
+                      <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.title}</div>
+                    </td>
                     <td style={{ padding: 12 }}>{new Date(m.datetime).toLocaleString()}</td>
                     <td style={{ padding: 12 }}>{aptDisplay}</td>
                     <td style={{ padding: 12 }}>

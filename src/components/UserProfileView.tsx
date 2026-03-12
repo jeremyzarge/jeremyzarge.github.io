@@ -107,9 +107,12 @@ export default function UserProfileView({
   const allAllergies = [...activeAllergies, ...customAllergies];
 
   const activeCanBring = user.can_bring
-    ? Object.entries(user.can_bring)
-        .filter(([, val]) => val === true)
-        .map(([key]) => foodLabels[key] || key)
+    ? [
+        ...Object.entries(user.can_bring)
+          .filter(([key, val]) => key !== "custom" && val === true)
+          .map(([key]) => foodLabels[key] || key),
+        ...(user.can_bring.custom || []),
+      ]
     : [];
 
   const mutualFriends = allUsers.filter((u) => mutualFriendIds.includes(u.id));
@@ -291,8 +294,8 @@ export default function UserProfileView({
               onMouseEnter={(e) => { if (onViewMeal) e.currentTarget.style.background = "#dcfce7"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = "#f0fdf4"; }}
             >
-              <span style={{ fontWeight: 700, color: "#374151" }}>{m.title}</span>
-              <span style={{ color: "#6b7280", fontSize: "0.75rem", fontWeight: 600 }}>
+              <span style={{ fontWeight: 700, color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, flex: 1 }}>{m.title}</span>
+              <span style={{ color: "#6b7280", fontSize: "0.75rem", fontWeight: 600, flexShrink: 0 }}>
                 {new Date(m.datetime).toLocaleDateString()}
               </span>
             </div>

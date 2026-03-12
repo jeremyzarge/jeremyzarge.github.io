@@ -95,6 +95,14 @@ export default function App() {
       const numericId = await ensureUserNumericMapping(u.uid);
       setMyId(numericId);
 
+      // Auto-save email from Google auth if not already stored
+      if (u.email) {
+        const emailSnap = await get(ref(rtdb, `users/${numericId}/email`));
+        if (!emailSnap.exists() || emailSnap.val() !== u.email) {
+          await set(ref(rtdb, `users/${numericId}/email`), u.email);
+        }
+      }
+
       const prof = await loadProfile(numericId);
       if (!prof || !prof.first_name) {
         setNeedsProfile(true);

@@ -25,6 +25,7 @@ export type CanBring = {
   snacks: boolean;
   sides: boolean;
   utensils: boolean;
+  custom?: string[];
 };
 
 export type UserProfile = {
@@ -32,6 +33,7 @@ export type UserProfile = {
   first_name: string;
   last_name: string;
   apartment: string;
+  email?: string;
   can_bring: CanBring;
   allergies: Allergies;
   placeholder: boolean;
@@ -42,6 +44,7 @@ export type MealParticipant = {
   specifics: string;
   role: "host" | "guest";
   accepted?: boolean;  // true = accepted, absent/false = invited only
+  additional_items?: Array<{ food: string; specifics: string }>;
 };
 
 export type MealMessage = {
@@ -57,6 +60,7 @@ export type Meal = {
   datetime: string;
   created_at: string;
   instructions: string;
+  location?: string;
   allowGuestsFoodSelection: boolean;
   messages: Record<string, MealMessage>;
 };

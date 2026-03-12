@@ -80,6 +80,7 @@ export function createDefaultCanBring(): CanBring {
     snacks: false,
     sides: false,
     utensils: false,
+    custom: [],
   };
 }
 

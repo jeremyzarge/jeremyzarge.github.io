@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef, useCallback } from "react";
+import React, { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { ref, get, set, remove, onValue } from "firebase/database";
@@ -125,6 +125,11 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
   // For adding participants
   const [selectedUserId, setSelectedUserId] = useState("");
   const [copiedInvite, setCopiedInvite] = useState(false);
+
+  // Searchable combobox for participant selection
+  const [userSearch, setUserSearch] = useState("");
+  const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const userComboRef = useRef<HTMLDivElement>(null);
 
   // Ref for auto-scrolling messages to bottom
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -254,6 +259,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         datetime: mealData.datetime || new Date().toISOString(),
         created_at: mealData.created_at || new Date().toISOString(),
         instructions: mealData.instructions || "",
+        location: mealData.location || "",
         allowGuestsFoodSelection: mealData.allowGuestsFoodSelection || false,
         messages: mealData.messages || {},
       };
@@ -303,6 +309,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         datetime: mealData.datetime || new Date().toISOString(),
         created_at: mealData.created_at || new Date().toISOString(),
         instructions: mealData.instructions || "",
+        location: mealData.location || "",
         allowGuestsFoodSelection: mealData.allowGuestsFoodSelection || false,
         messages: mealData.messages || {},
       };
@@ -312,6 +319,17 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
 
     return () => unsubscribe();
   }, [mealId, isCreateMode]);
+
+  // Close participant combobox dropdown on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (userComboRef.current && !userComboRef.current.contains(e.target as Node)) {
+        setUserDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   // Jump to bottom instantly when switching to messages tab
   useEffect(() => {
@@ -378,6 +396,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     });
 
     setSelectedUserId("");
+    setUserSearch("");
   };
 
   /**
@@ -524,6 +543,77 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     });
   };
 
+  /** Add an extra item row for a participant */
+  const addAdditionalItem = (userId: string) => {
+    if (isPastMeal || !meal) return;
+    if (!isHost && userId !== currentUserNumericId) return;
+    setMeal((prev) => {
+      if (!prev) return prev;
+      const p = prev.participants[userId];
+      if (!p) return prev;
+      return {
+        ...prev,
+        participants: {
+          ...prev.participants,
+          [userId]: { ...p, additional_items: [...(p.additional_items || []), { food: "none", specifics: "" }] },
+        },
+      };
+    });
+  };
+
+  /** Remove an extra item row for a participant */
+  const removeAdditionalItem = (userId: string, index: number) => {
+    if (isPastMeal || !meal) return;
+    if (!isHost && userId !== currentUserNumericId) return;
+    setMeal((prev) => {
+      if (!prev) return prev;
+      const p = prev.participants[userId];
+      if (!p) return prev;
+      const updated = (p.additional_items || []).filter((_, i) => i !== index);
+      return {
+        ...prev,
+        participants: {
+          ...prev.participants,
+          [userId]: { ...p, additional_items: updated },
+        },
+      };
+    });
+  };
+
+  /** Set food for an additional item */
+  const setAdditionalItemFood = (userId: string, index: number, food: string) => {
+    if (isPastMeal || !meal) return;
+    if (!isHost && userId !== currentUserNumericId) return;
+    setMeal((prev) => {
+      if (!prev) return prev;
+      const p = prev.participants[userId];
+      if (!p) return prev;
+      const items = [...(p.additional_items || [])];
+      items[index] = { ...items[index], food };
+      return {
+        ...prev,
+        participants: { ...prev.participants, [userId]: { ...p, additional_items: items } },
+      };
+    });
+  };
+
+  /** Set specifics for an additional item */
+  const setAdditionalItemSpecifics = (userId: string, index: number, specifics: string) => {
+    if (isPastMeal || !meal) return;
+    if (!isHost && userId !== currentUserNumericId) return;
+    setMeal((prev) => {
+      if (!prev) return prev;
+      const p = prev.participants[userId];
+      if (!p) return prev;
+      const items = [...(p.additional_items || [])];
+      items[index] = { ...items[index], specifics };
+      return {
+        ...prev,
+        participants: { ...prev.participants, [userId]: { ...p, additional_items: items } },
+      };
+    });
+  };
+
   /**
    * Save meal changes to database (create or update)
    */
@@ -562,14 +652,34 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         if (onCreated) onCreated();
         if (onClose) onClose();
       } else {
-        // Update existing meal
+        // Update existing meal — stay open, just update original state
         await set(ref(rtdb, `meal_events/${mealId}`), meal);
+        setOriginalMeal(structuredClone(meal));
         alert("Meal updated!");
-        if (onClose) onClose();
       }
     } catch (err: any) {
       console.error(err);
       alert(`Failed to ${isCreateMode ? 'create' : 'save'} meal: ` + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /**
+   * Save only the current user's own participant entry (for non-hosts)
+   */
+  const handleNonHostSave = async () => {
+    if (!meal || !currentUserId || !mealId) return;
+    const myParticipant = meal.participants[currentUserId];
+    if (!myParticipant) return;
+
+    setSaving(true);
+    try {
+      await set(ref(rtdb, `meal_events/${mealId}/participants/${currentUserId}`), myParticipant);
+      setOriginalMeal(structuredClone(meal));
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to save: " + err.message);
     } finally {
       setSaving(false);
     }
@@ -614,6 +724,16 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
       return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
     });
   }, [users, meal, friendSet]);
+
+  // Filtered users for the combobox dropdown — empty until something is typed
+  const filteredComboUsers = useMemo(() => {
+    if (!userSearch.trim()) return [];
+    const q = userSearch.toLowerCase();
+    return availableUsers.filter((u) =>
+      `${u.first_name} ${u.last_name}`.toLowerCase().includes(q) ||
+      (apartments.find((a) => a.id === u.apartment)?.name || "").toLowerCase().includes(q)
+    );
+  }, [availableUsers, userSearch, apartments]);
 
   // Get participants with user info
   const participantsWithInfo = useMemo(() => {
@@ -669,8 +789,32 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           backgroundImage: "linear-gradient(white, white), linear-gradient(135deg, #10b981 0%, #059669 100%)",
           backgroundOrigin: "border-box",
           backgroundClip: "padding-box, border-box",
+          position: "relative",
         }}
       >
+        {/* X close button */}
+        <button
+          type="button"
+          onClick={onClose}
+          style={{
+            position: "absolute",
+            top: 16,
+            right: 16,
+            background: "none",
+            border: "none",
+            fontSize: "1.4rem",
+            color: "#9ca3af",
+            cursor: "pointer",
+            lineHeight: 1,
+            padding: "4px 8px",
+            borderRadius: 8,
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = "#374151")}
+          onMouseLeave={(e) => (e.currentTarget.style.color = "#9ca3af")}
+        >
+          ✕
+        </button>
+
         <h3
           style={{
             marginBottom: 20,
@@ -767,6 +911,35 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                 </select>
               </div>
             </div>
+
+            {/* Optional custom location */}
+            {(isHost || meal.location) && !isPastMeal && (
+              <div style={{ marginTop: 12 }}>
+                <label style={{ display: "block", marginBottom: 8, fontWeight: 700, color: "#374151", fontSize: "0.9rem" }}>
+                  📍 Custom Location <span style={{ fontWeight: 400, color: "#9ca3af" }}>(if different from host apartment)</span>
+                </label>
+                <input
+                  value={meal.location || ""}
+                  onChange={(e) => isHost && !isPastMeal && setMeal((prev) => prev && { ...prev, location: e.target.value })}
+                  placeholder="e.g., 123 Main St, Apt 4B"
+                  disabled={!isHost || isPastMeal}
+                  style={{
+                    padding: "12px 16px",
+                    borderRadius: 12,
+                    border: "2px solid #d1d5db",
+                    width: "100%",
+                    fontWeight: 600,
+                    fontSize: "1rem",
+                    fontFamily: "Inter, sans-serif",
+                  }}
+                />
+              </div>
+            )}
+            {meal.location && isPastMeal && (
+              <div style={{ marginTop: 12, padding: "10px 14px", background: "#f9fafb", borderRadius: 10, fontWeight: 600, color: "#374151" }}>
+                📍 {meal.location}
+              </div>
+            )}
 
             <div
               style={{
@@ -887,41 +1060,78 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                   👥 Add Participant
                 </div>
                 <div className="add-participant-row" style={{ display: "flex", gap: 12 }}>
-                  <select
-                    value={selectedUserId}
-                    onChange={(e) => setSelectedUserId(e.target.value)}
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      padding: "12px 16px",
-                      borderRadius: 12,
-                      border: "2px solid #60a5fa",
-                      fontWeight: 600,
-                      fontSize: "0.95rem",
-                      background: "white",
-                      fontFamily: "Inter, sans-serif",
-                    }}
-                  >
-                    <option value="">-- Select user --</option>
-                    {friendSet.size > 0 && availableUsers.some((u) => friendSet.has(u.id)) && (
-                      <optgroup label="Friends">
-                        {availableUsers.filter((u) => friendSet.has(u.id)).map((u) => (
-                          <option key={u.id} value={u.id}>
-                            {u.first_name} {u.last_name} ({apartments.find((a) => a.id === u.apartment)?.name || "No apt"})
-                          </option>
+                  <div ref={userComboRef} style={{ flex: 1, minWidth: 0, position: "relative" }}>
+                    <input
+                      value={userSearch}
+                      onChange={(e) => {
+                        setUserSearch(e.target.value);
+                        setSelectedUserId("");
+                        setUserDropdownOpen(true);
+                      }}
+                      onFocus={() => setUserDropdownOpen(true)}
+                      placeholder="Search for a user..."
+                      style={{
+                        width: "100%",
+                        padding: "12px 16px",
+                        borderRadius: 12,
+                        border: "2px solid #60a5fa",
+                        fontWeight: 600,
+                        fontSize: "0.95rem",
+                        background: "white",
+                        fontFamily: "Inter, sans-serif",
+                        boxSizing: "border-box",
+                      }}
+                    />
+                    {userDropdownOpen && filteredComboUsers.length > 0 && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: "calc(100% + 4px)",
+                          left: 0,
+                          right: 0,
+                          background: "white",
+                          border: "2px solid #60a5fa",
+                          borderRadius: 10,
+                          zIndex: 200,
+                          maxHeight: 220,
+                          overflowY: "auto",
+                          boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+                        }}
+                      >
+                        {filteredComboUsers.map((u) => (
+                          <div
+                            key={u.id}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setSelectedUserId(u.id);
+                              setUserSearch(`${u.first_name} ${u.last_name}`);
+                              setUserDropdownOpen(false);
+                            }}
+                            style={{
+                              padding: "10px 16px",
+                              cursor: "pointer",
+                              fontWeight: 600,
+                              fontSize: "0.95rem",
+                              borderBottom: "1px solid #f3f4f6",
+                              display: "flex",
+                              gap: 6,
+                              alignItems: "center",
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.background = "#eff6ff")}
+                            onMouseLeave={(e) => (e.currentTarget.style.background = "white")}
+                          >
+                            <span>{u.first_name} {u.last_name}</span>
+                            {friendSet.has(u.id) && (
+                              <span style={{ fontSize: "0.75rem", color: "#6366f1", fontWeight: 700 }}>friend</span>
+                            )}
+                            <span style={{ fontSize: "0.8rem", color: "#9ca3af", marginLeft: "auto" }}>
+                              {apartments.find((a) => a.id === u.apartment)?.name || "No apt"}
+                            </span>
+                          </div>
                         ))}
-                      </optgroup>
+                      </div>
                     )}
-                    {availableUsers.some((u) => !friendSet.has(u.id)) && (
-                      <optgroup label={friendSet.size > 0 ? "Other Users" : "Users"}>
-                        {availableUsers.filter((u) => !friendSet.has(u.id)).map((u) => (
-                          <option key={u.id} value={u.id}>
-                            {u.first_name} {u.last_name} ({apartments.find((a) => a.id === u.apartment)?.name || "No apt"})
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                  </select>
+                  </div>
                   <button
                     type="button"
                     onClick={addParticipant}
@@ -976,6 +1186,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ background: "linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%)" }}>
+                      {!isPastMeal && <th style={{ width: 44, padding: "14px 4px 14px 12px" }} />}
                       <th
                         style={{
                           textAlign: "left",
@@ -1020,7 +1231,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                       >
                         Role
                       </th>
-                      {isHost && !isPastMeal && (
+                      {!isPastMeal && (
                         <th
                           style={{
                             textAlign: "left",
@@ -1039,9 +1250,23 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                     {acceptedParticipants.map(({ userId, participant, user }) => {
                       if (!user) return null;
 
+                      // Profile-based food options for this participant
+                      const profileFoods: string[] = [];
+                      const userCanBring = user.can_bring;
+                      if (userCanBring) {
+                        const presets = ["drinks", "dessert", "salad", "main_dish", "snacks", "sides", "utensils"] as const;
+                        for (const key of presets) {
+                          if (userCanBring[key] && !foods.includes(key)) profileFoods.push(key);
+                        }
+                        for (const c of userCanBring.custom || []) {
+                          if (!foods.includes(c) && !profileFoods.includes(c)) profileFoods.push(c);
+                        }
+                      }
+                      const knownFoods = ["none", ...foods, ...profileFoods];
+
                       return (
+                        <React.Fragment key={userId}>
                         <tr
-                          key={userId}
                           style={{
                             borderBottom: "1px solid #e5e7eb",
                             transition: "background 0.2s",
@@ -1049,6 +1274,34 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                           onMouseEnter={(e) => (e.currentTarget.style.background = "#f9fafb")}
                           onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                         >
+                          {!isPastMeal && (
+                            <td style={{ padding: "12px 4px 12px 12px" }}>
+                              {isHost && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeParticipant(userId)}
+                                  title="Remove from meal"
+                                  style={{
+                                    width: 30,
+                                    height: 30,
+                                    borderRadius: "50%",
+                                    border: "none",
+                                    background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
+                                    color: "white",
+                                    cursor: "pointer",
+                                    fontWeight: 700,
+                                    fontSize: "1.1rem",
+                                    lineHeight: 1,
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                  }}
+                                >
+                                  −
+                                </button>
+                              )}
+                            </td>
+                          )}
                           <td style={{ padding: "12px", fontWeight: 600, color: "#374151" }}>
                             {onViewProfile ? (
                               <ClickableUserName
@@ -1062,27 +1315,38 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                             )}
                           </td>
                           <td style={{ padding: "12px" }}>
-                            <select
-                              value={participant.food}
-                              onChange={(e) => setFoodForParticipant(userId, e.target.value)}
-                              disabled={isPastMeal || (!isHost && userId !== currentUserNumericId)}
-                              style={{
-                                padding: "8px 12px",
-                                borderRadius: 8,
-                                border: "2px solid #d1d5db",
-                                fontWeight: 600,
-                                fontSize: "0.9rem",
-                                minWidth: 140,
-                                fontFamily: "Inter, sans-serif",
-                              }}
-                            >
-                              <option value="none">{formatFood("none")}</option>
-                              {foods.map((f) => (
-                                <option key={f} value={f}>
-                                  {formatFood(f)}
-                                </option>
-                              ))}
-                            </select>
+                            {(() => {
+                              const selectValue = knownFoods.includes(participant.food) ? participant.food : "__other__";
+                              const canEdit = !isPastMeal && (isHost || userId === currentUserNumericId);
+                              return (
+                                <select
+                                  value={selectValue}
+                                  onChange={(e) => {
+                                    if (e.target.value === "__other__") setFoodForParticipant(userId, "other");
+                                    else setFoodForParticipant(userId, e.target.value);
+                                  }}
+                                  disabled={!canEdit}
+                                  style={{
+                                    padding: "8px 12px",
+                                    borderRadius: 8,
+                                    border: "2px solid #d1d5db",
+                                    fontWeight: 600,
+                                    fontSize: "0.9rem",
+                                    minWidth: 140,
+                                    fontFamily: "Inter, sans-serif",
+                                  }}
+                                >
+                                  <option value="none">{formatFood("none")}</option>
+                                  {foods.map((f) => (
+                                    <option key={f} value={f}>{formatFood(f)}</option>
+                                  ))}
+                                  {profileFoods.map((f) => (
+                                    <option key={`p-${f}`} value={f}>{formatFood(f)}</option>
+                                  ))}
+                                  <option value="__other__">✏️ Other</option>
+                                </select>
+                              );
+                            })()}
                           </td>
                           <td style={{ padding: "12px" }}>
                             <input
@@ -1128,33 +1392,148 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                                     opacity: canToggle ? 1 : 0.6,
                                   }}
                                 >
-                                  {participant.role === "host" ? "Host" : "Guest"}
-                                  {isResident && participant.role === "host" ? " 🏠" : ""}
+                                  {participant.role === "host" ? "🏠 Host" : "Guest"}
                                 </button>
                               );
                             })()}
                           </td>
-                          {isHost && !isPastMeal && (
+                          {!isPastMeal && (
                             <td style={{ padding: "12px" }}>
-                              <button
-                                type="button"
-                                onClick={() => removeParticipant(userId)}
-                                style={{
-                                  padding: "6px 12px",
-                                  borderRadius: 8,
-                                  border: "none",
-                                  background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
-                                  color: "white",
-                                  cursor: "pointer",
-                                  fontWeight: 700,
-                                  fontSize: "0.85rem",
-                                }}
-                              >
-                                Remove
-                              </button>
+                              {(isHost || userId === currentUserNumericId) && !invitedMode && (
+                                <button
+                                  type="button"
+                                  onClick={() => addAdditionalItem(userId)}
+                                  style={{
+                                    padding: "6px 12px",
+                                    borderRadius: 8,
+                                    border: "none",
+                                    background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                                    color: "white",
+                                    cursor: "pointer",
+                                    fontWeight: 700,
+                                    fontSize: "0.85rem",
+                                    boxShadow: "0 2px 6px rgba(16,185,129,0.3)",
+                                  }}
+                                >
+                                  Add Item
+                                </button>
+                              )}
                             </td>
                           )}
                         </tr>
+                        {(participant.additional_items || []).map((item, idx) => {
+                          const canEditItem = !isPastMeal && (isHost || userId === currentUserNumericId) && !invitedMode;
+                          const itemSelectValue = knownFoods.includes(item.food) ? item.food : "__other__";
+                          return (
+                            <tr
+                              key={`${userId}-extra-${idx}`}
+                              style={{ borderBottom: "1px solid #e5e7eb", background: "#f9fafb" }}
+                            >
+                              {!isPastMeal && (
+                                <td style={{ padding: "6px 4px 6px 12px" }}>
+                                  {canEditItem && (
+                                    <button
+                                      type="button"
+                                      onClick={() => removeAdditionalItem(userId, idx)}
+                                      title="Remove item"
+                                      style={{
+                                        width: 30,
+                                        height: 30,
+                                        borderRadius: "50%",
+                                        border: "none",
+                                        background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
+                                        color: "white",
+                                        cursor: "pointer",
+                                        fontWeight: 700,
+                                        fontSize: "1.1rem",
+                                        lineHeight: 1,
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                      }}
+                                    >
+                                      −
+                                    </button>
+                                  )}
+                                </td>
+                              )}
+                              <td style={{ padding: "6px 12px 6px 28px", color: "#9ca3af", fontSize: "0.8rem", fontWeight: 700 }}>
+                                ↳ extra
+                              </td>
+                              <td style={{ padding: "6px 12px" }}>
+                                <select
+                                  value={itemSelectValue}
+                                  onChange={(e) => {
+                                    if (e.target.value === "__other__") setAdditionalItemFood(userId, idx, "other");
+                                    else setAdditionalItemFood(userId, idx, e.target.value);
+                                  }}
+                                  disabled={!canEditItem}
+                                  style={{
+                                    padding: "6px 10px",
+                                    borderRadius: 8,
+                                    border: "2px solid #d1d5db",
+                                    fontWeight: 600,
+                                    fontSize: "0.85rem",
+                                    minWidth: 140,
+                                    fontFamily: "Inter, sans-serif",
+                                  }}
+                                >
+                                  <option value="none">{formatFood("none")}</option>
+                                  {foods.map((f) => (
+                                    <option key={f} value={f}>{formatFood(f)}</option>
+                                  ))}
+                                  {profileFoods.map((f) => (
+                                    <option key={`p-${f}`} value={f}>{formatFood(f)}</option>
+                                  ))}
+                                  <option value="__other__">✏️ Other</option>
+                                </select>
+                              </td>
+                              <td style={{ padding: "6px 12px" }}>
+                                <input
+                                  type="text"
+                                  value={item.specifics}
+                                  onChange={(e) => setAdditionalItemSpecifics(userId, idx, e.target.value)}
+                                  disabled={!canEditItem}
+                                  placeholder="e.g., vegan, GF"
+                                  style={{
+                                    padding: "6px 10px",
+                                    borderRadius: 8,
+                                    border: "2px solid #d1d5db",
+                                    width: "100%",
+                                    fontWeight: 600,
+                                    fontSize: "0.85rem",
+                                    fontFamily: "Inter, sans-serif",
+                                  }}
+                                />
+                              </td>
+                              <td />
+                              {!isPastMeal && (
+                                <td style={{ padding: "6px 12px" }}>
+                                  {canEditItem && (
+                                    <button
+                                      type="button"
+                                      onClick={() => addAdditionalItem(userId)}
+                                      style={{
+                                        padding: "6px 12px",
+                                        borderRadius: 8,
+                                        border: "none",
+                                        background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                                        color: "white",
+                                        cursor: "pointer",
+                                        fontWeight: 700,
+                                        fontSize: "0.85rem",
+                                        boxShadow: "0 2px 6px rgba(16,185,129,0.3)",
+                                      }}
+                                    >
+                                      Add Item
+                                    </button>
+                                  )}
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })}
+                        </React.Fragment>
                       );
                     })}
                   </tbody>
@@ -1451,6 +1830,34 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
             >
               Leave Meal
             </button>
+          )}
+          {/* Non-host save button */}
+          {!isHost && !isCreateMode && !isPastMeal && !invitedMode && currentUserId && meal.participants[currentUserId]?.accepted === true && (
+            (() => {
+              const isDisabled = saving || !hasChanges;
+              return (
+                <button
+                  onClick={handleNonHostSave}
+                  disabled={isDisabled}
+                  style={{
+                    padding: "12px 32px",
+                    borderRadius: 12,
+                    border: "none",
+                    background: isDisabled
+                      ? "#d1d5db"
+                      : "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                    color: "white",
+                    cursor: isDisabled ? "not-allowed" : "pointer",
+                    fontWeight: 800,
+                    fontSize: "1.05rem",
+                    boxShadow: isDisabled ? "none" : "0 6px 16px rgba(16, 185, 129, 0.4)",
+                    transition: "all 0.2s ease",
+                  }}
+                >
+                  {saving ? "Saving…" : "Save Changes"}
+                </button>
+              );
+            })()
           )}
           {isHost && (
             <>

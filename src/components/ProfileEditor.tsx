@@ -31,16 +31,21 @@ export default function ProfileEditor({
 
   // Foods user can bring
   const [canBring, setCanBring] = useState<CanBring>(
-    currentProfile.can_bring || createDefaultCanBring()
+    currentProfile.can_bring
+      ? { ...currentProfile.can_bring, custom: currentProfile.can_bring.custom || [] }
+      : createDefaultCanBring()
   );
+  const [customCanBringInput, setCustomCanBringInput] = useState("");
 
   // Allergies
   const [allergies, setAllergies] = useState<Allergies>(
-    currentProfile.allergies || createDefaultAllergies()
+    currentProfile.allergies
+      ? { ...currentProfile.allergies, custom: currentProfile.allergies.custom || [] }
+      : createDefaultAllergies()
   );
   const [customAllergyInput, setCustomAllergyInput] = useState("");
 
-  const foodOptions: Array<{ key: keyof CanBring; label: string }> = [
+  const foodOptions: Array<{ key: keyof Omit<CanBring, "custom">; label: string }> = [
     { key: "drinks", label: "🥤 Drinks" },
     { key: "dessert", label: "🍰 Dessert" },
     { key: "salad", label: "🥗 Salad" },
@@ -62,8 +67,19 @@ export default function ProfileEditor({
     fetchAllApartments().then(setApartments);
   }, []);
 
-  const toggleCanBring = (key: keyof CanBring) => {
+  const toggleCanBring = (key: keyof Omit<CanBring, "custom">) => {
     setCanBring((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const addCustomCanBring = () => {
+    const trimmed = customCanBringInput.trim();
+    if (!trimmed || (canBring.custom || []).includes(trimmed)) return;
+    setCanBring((prev) => ({ ...prev, custom: [...(prev.custom || []), trimmed] }));
+    setCustomCanBringInput("");
+  };
+
+  const deleteCustomCanBring = (item: string) => {
+    setCanBring((prev) => ({ ...prev, custom: (prev.custom || []).filter((c) => c !== item) }));
   };
 
   const toggleAllergy = (key: keyof Omit<Allergies, "custom">) => {
@@ -260,6 +276,50 @@ export default function ProfileEditor({
               {canBring[item.key] ? "✓ " : ""}{item.label}
             </button>
           ))}
+          {(canBring.custom || []).map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => deleteCustomCanBring(c)}
+              style={{
+                padding: "10px 18px",
+                borderRadius: 50,
+                border: "none",
+                background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                color: "white",
+                fontWeight: 700,
+                fontSize: "0.95rem",
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+                boxShadow: "0 4px 12px rgba(16, 185, 129, 0.3)",
+                fontFamily: "Inter, sans-serif",
+              }}
+            >
+              ✕ {c}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <input
+            placeholder="Add custom item (e.g. wine, hummus)..."
+            value={customCanBringInput}
+            onChange={(e) => setCustomCanBringInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addCustomCanBring())}
+            style={{ ...inputStyle, flex: 1 }}
+          />
+          <button
+            type="button"
+            onClick={addCustomCanBring}
+            disabled={!customCanBringInput.trim()}
+            style={{
+              ...primarySmallButton,
+              marginTop: 0,
+              opacity: customCanBringInput.trim() ? 1 : 0.5,
+              cursor: customCanBringInput.trim() ? "pointer" : "not-allowed",
+            }}
+          >
+            + Add
+          </button>
         </div>
 
         <SectionTitle text="Allergies / Dietary Restrictions" />
