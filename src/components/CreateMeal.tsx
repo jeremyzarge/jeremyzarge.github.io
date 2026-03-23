@@ -145,42 +145,65 @@ export default function CreateMeal({ onCreated, onCancel }: CreateMealProps) {
       <h3 style={{ marginTop: 0 }}>Create Meal</h3>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <input
-          placeholder="Title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          style={{ padding: 10, borderRadius: 8, border: "1px solid #e6e9ef" }}
-        />
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <label style={{ fontWeight: 700, fontSize: "0.8rem", color: "#374151" }}>
+            Title <span style={{ color: "#ef4444" }}>*</span>
+          </label>
+          <input
+            placeholder="Title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            style={{ padding: 10, borderRadius: 8, border: "1px solid #e6e9ef" }}
+          />
+        </div>
 
-        <select
-          value={hostApartment}
-          onChange={(e) => setHostApartment(e.target.value)}
-          style={{ padding: 10, borderRadius: 8, border: "1px solid #e6e9ef" }}
-        >
-          <option value="">-- Host apartment --</option>
-          {apartments.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name} — {a.address}
-            </option>
-          ))}
-        </select>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <label style={{ fontWeight: 700, fontSize: "0.8rem", color: "#374151" }}>
+            Host apartment <span style={{ color: "#ef4444" }}>*</span>
+          </label>
+          <select
+            value={hostApartment}
+            onChange={(e) => setHostApartment(e.target.value)}
+            style={{ padding: 10, borderRadius: 8, border: "1px solid #e6e9ef" }}
+          >
+            <option value="">-- Host apartment --</option>
+            {apartments.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name} — {a.address}
+              </option>
+            ))}
+          </select>
+        </div>
 
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          style={{ padding: 10, borderRadius: 8, border: "1px solid #e6e9ef" }}
-        />
-        <input
-          type="time"
-          value={time}
-          onChange={(e) => setTime(e.target.value)}
-          style={{ padding: 10, borderRadius: 8, border: "1px solid #e6e9ef" }}
-        />
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <label style={{ fontWeight: 700, fontSize: "0.8rem", color: "#374151" }}>
+            Date <span style={{ color: "#ef4444" }}>*</span>
+          </label>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            style={{ padding: 10, borderRadius: 8, border: "1px solid #e6e9ef" }}
+          />
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <label style={{ fontWeight: 700, fontSize: "0.8rem", color: "#374151" }}>
+            Time <span style={{ color: "#ef4444" }}>*</span>
+          </label>
+          <input
+            type="time"
+            value={time}
+            onChange={(e) => setTime(e.target.value)}
+            style={{ padding: 10, borderRadius: 8, border: "1px solid #e6e9ef" }}
+          />
+        </div>
       </div>
 
       <div style={{ marginTop: 12 }}>
-        <div style={{ marginBottom: 8, fontWeight: 600 }}>Add Participants</div>
+        <div style={{ marginBottom: 8, fontWeight: 600 }}>
+          Participants <span style={{ color: "#ef4444" }}>*</span>
+          <span style={{ fontWeight: 400, fontSize: "0.8rem", color: "#6b7280", marginLeft: 6 }}>(at least one host required)</span>
+        </div>
         <div style={{ display: "flex", gap: 8 }}>
           <select
             value={selectedUserId}

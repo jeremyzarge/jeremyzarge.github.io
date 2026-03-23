@@ -187,7 +187,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           title: "",
           host_apartment_id: creatorApartment,
           participants: initialParticipants,
-          datetime: new Date(Date.now() + 3600000).toISOString(), // 1 hour from now
+          datetime: "",
           created_at: new Date().toISOString(),
           instructions: "",
           allowGuestsFoodSelection: false,
@@ -351,7 +351,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
   // Check if meal is in the past
   const isPastMeal = useMemo(() => {
     if (!meal) return false;
-    return new Date(meal.datetime) < new Date();
+    return !!meal.datetime && new Date(meal.datetime) < new Date();
   }, [meal]);
 
   // Check if meal has unsaved changes (compare with original, excluding messages)
@@ -864,7 +864,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
             <div className="form-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
               <div>
                 <label style={{ display: "block", marginBottom: 8, fontWeight: 700, color: "#374151", fontSize: "0.9rem" }}>
-                  Meal Title
+                  Meal Title {isCreateMode && <span style={{ color: "#ef4444" }}>*</span>}
                 </label>
                 <input
                   value={meal.title}
@@ -884,7 +884,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
               </div>
               <div>
                 <label style={{ display: "block", marginBottom: 8, fontWeight: 700, color: "#374151", fontSize: "0.9rem" }}>
-                  Host Apartment
+                  Host Apartment {isCreateMode && <span style={{ color: "#ef4444" }}>*</span>}
                 </label>
                 <select
                   value={meal.host_apartment_id}
@@ -951,7 +951,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
               }}
             >
               <label style={{ display: "block", marginBottom: 8, fontWeight: 800, color: "#5b21b6", fontSize: "0.9rem" }}>
-                📅 Date & Time
+                📅 Date & Time {isCreateMode && <span style={{ color: "#ef4444" }}>*</span>}
               </label>
               <DatePicker
                 selected={meal.datetime ? new Date(meal.datetime) : null}
@@ -1507,29 +1507,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                                 />
                               </td>
                               <td />
-                              {!isPastMeal && (
-                                <td style={{ padding: "6px 12px" }}>
-                                  {canEditItem && (
-                                    <button
-                                      type="button"
-                                      onClick={() => addAdditionalItem(userId)}
-                                      style={{
-                                        padding: "6px 12px",
-                                        borderRadius: 8,
-                                        border: "none",
-                                        background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-                                        color: "white",
-                                        cursor: "pointer",
-                                        fontWeight: 700,
-                                        fontSize: "0.85rem",
-                                        boxShadow: "0 2px 6px rgba(16,185,129,0.3)",
-                                      }}
-                                    >
-                                      Add Item
-                                    </button>
-                                  )}
-                                </td>
-                              )}
+                              {!isPastMeal && <td />}
                             </tr>
                           );
                         })}
@@ -1812,25 +1790,33 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
             </button>
           )}
           {/* Leave Meal button - for any participant (not just hosts) */}
-          {!isCreateMode && !isPastMeal && currentUserId && meal.participants[currentUserId] && meal.participants[currentUserId].accepted === true && (
-            <button
-              onClick={leaveMeal}
-              style={{
-                padding: "12px 24px",
-                borderRadius: 12,
-                border: "none",
-                background: "linear-gradient(135deg, #f97316 0%, #ea580c 100%)",
-                color: "white",
-                cursor: "pointer",
-                fontWeight: 800,
-                fontSize: "1rem",
-                boxShadow: "0 4px 12px rgba(249, 115, 22, 0.3)",
-                transition: "all 0.2s ease",
-              }}
-            >
-              Leave Meal
-            </button>
-          )}
+          {!isCreateMode && !isPastMeal && currentUserId && meal.participants[currentUserId] && meal.participants[currentUserId].accepted === true && (() => {
+            const isLastHost = meal.participants[currentUserId]?.role === "host" &&
+              Object.entries(meal.participants).filter(([id, p]) => id !== currentUserId && p.role === "host" && p.accepted === true).length === 0;
+            return (
+              <button
+                onClick={leaveMeal}
+                disabled={isLastHost}
+                title={isLastHost ? "You are the only host — assign another host before leaving" : undefined}
+                style={{
+                  padding: "12px 24px",
+                  borderRadius: 12,
+                  border: "none",
+                  background: isLastHost
+                    ? "#d1d5db"
+                    : "linear-gradient(135deg, #f97316 0%, #ea580c 100%)",
+                  color: "white",
+                  cursor: isLastHost ? "not-allowed" : "pointer",
+                  fontWeight: 800,
+                  fontSize: "1rem",
+                  boxShadow: isLastHost ? "none" : "0 4px 12px rgba(249, 115, 22, 0.3)",
+                  transition: "all 0.2s ease",
+                }}
+              >
+                Leave Meal
+              </button>
+            );
+          })()}
           {/* Non-host save button */}
           {!isHost && !isCreateMode && !isPastMeal && !invitedMode && currentUserId && meal.participants[currentUserId]?.accepted === true && (
             (() => {
@@ -1882,7 +1868,14 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
               )}
               {(() => {
                 // Save button is disabled if saving, or for edit mode: past meal or no changes
-                const isDisabled = saving || (!isCreateMode && (isPastMeal || !hasChanges));
+                // For create mode: require title, host apartment, datetime, and at least one host participant
+                const createModeInvalid = isCreateMode && (
+                  !meal.title.trim() ||
+                  !meal.host_apartment_id ||
+                  !meal.datetime ||
+                  !Object.values(meal.participants).some((p) => p.role === "host" && p.accepted === true)
+                );
+                const isDisabled = saving || createModeInvalid || (!isCreateMode && (isPastMeal || !hasChanges));
                 return (
                   <button
                     onClick={handleSave}

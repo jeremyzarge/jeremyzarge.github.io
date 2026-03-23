@@ -137,7 +137,7 @@ export default function ProfileEditor({
     !lastName.trim() ||
     (newApartment
       ? !newApartment.name.trim() || !newApartment.address.trim()
-      : !selectedApartmentId);
+      : false);
 
   return (
     <div

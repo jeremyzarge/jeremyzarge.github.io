@@ -57,7 +57,7 @@ export type Meal = {
   title: string;
   host_apartment_id: string;
   participants: Record<string, MealParticipant>;
-  datetime: string;
+  datetime?: string;
   created_at: string;
   instructions: string;
   location?: string;

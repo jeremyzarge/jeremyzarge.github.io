@@ -110,7 +110,7 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
         name: newApartment.name.trim(),
         address: newApartment.address.trim(),
       };
-    } else {
+    } else if (selectedApartmentId) {
       profileData.apartmentId = selectedApartmentId;
     }
 
@@ -123,7 +123,7 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
     !lastName.trim() ||
     (newApartment
       ? !newApartment.name.trim() || !newApartment.address.trim()
-      : !selectedApartmentId);
+      : false);
 
   return (
     <div
@@ -182,58 +182,81 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
           Tell us about yourself so you can join meals.
         </p>
 
-        <input
-          placeholder="First name"
-          value={firstName}
-          onChange={(e) => setFirstName(e.target.value)}
-          style={inputStyle}
-          autoFocus
-        />
-        <input
-          placeholder="Last name"
-          value={lastName}
-          onChange={(e) => setLastName(e.target.value)}
-          style={inputStyle}
-        />
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <label style={labelStyle}>
+            First name <span style={requiredStar}>*</span>
+          </label>
+          <input
+            placeholder="First name"
+            value={firstName}
+            onChange={(e) => setFirstName(e.target.value)}
+            style={inputStyle}
+            autoFocus
+          />
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <label style={labelStyle}>
+            Last name <span style={requiredStar}>*</span>
+          </label>
+          <input
+            placeholder="Last name"
+            value={lastName}
+            onChange={(e) => setLastName(e.target.value)}
+            style={inputStyle}
+          />
+        </div>
 
-        <select
-          value={newApartment ? "new" : selectedApartmentId}
-          onChange={(e) => {
-            if (e.target.value === "new") {
-              setNewApartment({ name: "", address: "" });
-              setSelectedApartmentId("");
-            } else {
-              setNewApartment(null);
-              setSelectedApartmentId(e.target.value);
-            }
-          }}
-          style={inputStyle}
-        >
-          <option value="">-- Select Existing Apartment --</option>
-          {apartments.map((apt) => (
-            <option key={apt.id} value={apt.id}>
-              {apt.name} — {apt.address}
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <label style={labelStyle}>Apartment</label>
+          <select
+            value={newApartment ? "new" : selectedApartmentId}
+            onChange={(e) => {
+              if (e.target.value === "new") {
+                setNewApartment({ name: "", address: "" });
+                setSelectedApartmentId("");
+              } else {
+                setNewApartment(null);
+                setSelectedApartmentId(e.target.value);
+              }
+            }}
+            style={inputStyle}
+          >
+            <option value="">-- Select Apartment (optional) --</option>
+            {apartments.map((apt) => (
+              <option key={apt.id} value={apt.id}>
+                {apt.name} — {apt.address}
+              </option>
+            ))}
+            <option value="new" style={{ color: "#2563eb", fontWeight: 600 }}>
+              + Create New Apartment
             </option>
-          ))}
-          <option value="new" style={{ color: "#2563eb", fontWeight: 600 }}>
-            + Create New Apartment
-          </option>
-        </select>
+          </select>
+        </div>
 
         {newApartment && (
           <>
-            <input
-              placeholder="Apartment name"
-              value={newApartment.name}
-              onChange={(e) => setNewApartment({ ...newApartment, name: e.target.value })}
-              style={inputStyle}
-            />
-            <input
-              placeholder="Apartment address"
-              value={newApartment.address}
-              onChange={(e) => setNewApartment({ ...newApartment, address: e.target.value })}
-              style={inputStyle}
-            />
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label style={labelStyle}>
+                Apartment name <span style={requiredStar}>*</span>
+              </label>
+              <input
+                placeholder="Apartment name"
+                value={newApartment.name}
+                onChange={(e) => setNewApartment({ ...newApartment, name: e.target.value })}
+                style={inputStyle}
+              />
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label style={labelStyle}>
+                Apartment address <span style={requiredStar}>*</span>
+              </label>
+              <input
+                placeholder="Apartment address"
+                value={newApartment.address}
+                onChange={(e) => setNewApartment({ ...newApartment, address: e.target.value })}
+                style={inputStyle}
+              />
+            </div>
           </>
         )}
 
@@ -411,6 +434,16 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
 }
 
 /* Styles */
+
+const labelStyle: React.CSSProperties = {
+  fontWeight: 700,
+  fontSize: "0.85rem",
+  color: "#374151",
+};
+
+const requiredStar: React.CSSProperties = {
+  color: "#ef4444",
+};
 
 const inputStyle: React.CSSProperties = {
   padding: 14,
