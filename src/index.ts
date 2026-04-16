@@ -67,9 +67,12 @@ export async function getNextNumericKeyForPath(path: string): Promise<string> {
  * @returns Promise resolving to the new meal's ID
  */
 export async function createMeal(mealObj: Meal): Promise<string> {
-  const nextId = await getNextNumericKeyForPath("meal_events");
-  await set(ref(rtdb, `meal_events/${nextId}`), mealObj);
-  return nextId;
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const id = Array.from(crypto.getRandomValues(new Uint8Array(7)))
+    .map((b) => chars[b % chars.length])
+    .join("");
+  await set(ref(rtdb, `meal_events/${id}`), mealObj);
+  return id;
 }
 
 /**

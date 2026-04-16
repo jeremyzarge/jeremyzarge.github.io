@@ -1041,6 +1041,30 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                 placeholder="Add any special instructions for the meal..."
               />
             </div>
+
+            {isHost && !isCreateMode && mealId && (
+              <div style={{ marginTop: 20 }}>
+                <label style={{ display: "block", marginBottom: 8, fontWeight: 700, color: "#374151", fontSize: "0.9rem" }}>
+                  Invite Link
+                </label>
+                <div
+                  style={{
+                    padding: "12px 16px",
+                    borderRadius: 12,
+                    border: "2px solid #d1d5db",
+                    background: "#f9fafb",
+                    fontWeight: 700,
+                    fontSize: "0.9rem",
+                    fontFamily: "monospace",
+                    color: "#4f46e5",
+                    userSelect: "all",
+                    wordBreak: "break-all",
+                  }}
+                >
+                  {generateMealInviteUrl(mealId)}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1757,17 +1781,11 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
             <button
               type="button"
               onClick={() => {
-                try {
-                  const url = generateMealInviteUrl(mealId);
-                  navigator.clipboard.writeText(url).then(() => {
-                    setCopiedInvite(true);
-                    setTimeout(() => setCopiedInvite(false), 2000);
-                  }).catch(() => {
-                    prompt("Copy this invite link:", url);
-                  });
-                } catch {
-                  alert("Failed to generate invite link.");
-                }
+                const url = generateMealInviteUrl(mealId);
+                navigator.clipboard.writeText(url).then(() => {
+                  setCopiedInvite(true);
+                  setTimeout(() => setCopiedInvite(false), 2000);
+                }).catch(() => {});
               }}
               style={{
                 padding: "12px 24px",
@@ -1786,7 +1804,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                 transition: "all 0.2s ease",
               }}
             >
-              {copiedInvite ? "✓ Link Copied!" : "🔗 Invite Link"}
+              {copiedInvite ? "✓ Link Copied!" : "🔗 Copy Invite Link"}
             </button>
           )}
           {/* Leave Meal button - for any participant (not just hosts) */}

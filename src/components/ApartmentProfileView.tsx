@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ref, get } from "firebase/database";
-import { rtdb } from "../firebaseClient";
+import { rtdb, updateApartment } from "../firebaseClient";
 import { fetchAllApartments } from "../utils";
 import ClickableUserName from "./ClickableUserName";
 import type { UserWithId, Meal } from "../types";
@@ -28,7 +28,35 @@ export default function ApartmentProfileView({
   const [meals, setMeals] = useState<Array<{ id: string; title: string; datetime: string }>>([]);
   const [pastMealsShown, setPastMealsShown] = useState(5);
 
+  // Edit mode
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editAddress, setEditAddress] = useState("");
+  const [saving, setSaving] = useState(false);
+
   const members = allUsers.filter((u) => u.apartment === apartmentId && u.first_name && !u.placeholder);
+  const isMember = allUsers.find((u) => u.id === currentUserId)?.apartment === apartmentId;
+
+  const startEditing = () => {
+    setEditName(aptName);
+    setEditAddress(aptAddress);
+    setEditing(true);
+  };
+
+  const handleSave = async () => {
+    if (!editName.trim()) return;
+    setSaving(true);
+    try {
+      await updateApartment(apartmentId, editName.trim(), editAddress.trim());
+      setAptName(editName.trim());
+      setAptAddress(editAddress.trim());
+      setEditing(false);
+    } catch (err) {
+      alert("Failed to save apartment.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -127,29 +155,104 @@ export default function ApartmentProfileView({
           backgroundClip: "padding-box, border-box",
         }}
       >
-        {/* Close button always visible */}
+        {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div>
+          <div style={{ flex: 1, minWidth: 0 }}>
             {!loading && (
-              <>
-                <h2
-                  style={{
-                    margin: 0,
-                    fontWeight: 900,
-                    background: "linear-gradient(135deg, #10b981 0%, #047857 100%)",
-                    WebkitBackgroundClip: "text",
-                    WebkitTextFillColor: "transparent",
-                    backgroundClip: "text",
-                    fontSize: "1.8rem",
-                    letterSpacing: "-0.5px",
-                  }}
-                >
-                  {aptName}
-                </h2>
-                {aptAddress && (
-                  <div style={{ color: "#6b7280", fontSize: "1rem", marginTop: 4 }}>{aptAddress}</div>
-                )}
-              </>
+              editing ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <h3 style={{ margin: "0 0 4px 0", fontWeight: 800, color: "#047857", fontSize: "1.1rem" }}>Edit Apartment</h3>
+                  <input
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    placeholder="Apartment name *"
+                    autoFocus
+                    style={editInputStyle}
+                  />
+                  <input
+                    value={editAddress}
+                    onChange={(e) => setEditAddress(e.target.value)}
+                    placeholder="Address"
+                    style={editInputStyle}
+                  />
+                  <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                    <button
+                      onClick={handleSave}
+                      disabled={!editName.trim() || saving}
+                      style={{
+                        padding: "8px 20px",
+                        borderRadius: 10,
+                        border: "none",
+                        background: !editName.trim() || saving
+                          ? "#d1d5db"
+                          : "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                        color: "white",
+                        fontWeight: 700,
+                        fontSize: "0.9rem",
+                        cursor: !editName.trim() || saving ? "not-allowed" : "pointer",
+                        boxShadow: !editName.trim() || saving ? "none" : "0 4px 10px rgba(16,185,129,0.3)",
+                      }}
+                    >
+                      {saving ? "Saving…" : "Save"}
+                    </button>
+                    <button
+                      onClick={() => setEditing(false)}
+                      disabled={saving}
+                      style={{
+                        padding: "8px 16px",
+                        borderRadius: 10,
+                        border: "1px solid #d1d5db",
+                        background: "white",
+                        fontWeight: 600,
+                        fontSize: "0.9rem",
+                        cursor: "pointer",
+                        color: "#374151",
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <h2
+                      style={{
+                        margin: 0,
+                        fontWeight: 900,
+                        background: "linear-gradient(135deg, #10b981 0%, #047857 100%)",
+                        WebkitBackgroundClip: "text",
+                        WebkitTextFillColor: "transparent",
+                        backgroundClip: "text",
+                        fontSize: "1.8rem",
+                        letterSpacing: "-0.5px",
+                      }}
+                    >
+                      {aptName}
+                    </h2>
+                    {isMember && (
+                      <button
+                        onClick={startEditing}
+                        style={{
+                          padding: "4px 12px",
+                          borderRadius: 8,
+                          border: "1px solid #d1d5db",
+                          background: "white",
+                          color: "#6b7280",
+                          fontWeight: 600,
+                          fontSize: "0.8rem",
+                          cursor: "pointer",
+                        }}
+                      >
+                        ✏️ Edit
+                      </button>
+                    )}
+                  </div>
+                  {aptAddress && (
+                    <div style={{ color: "#6b7280", fontSize: "1rem", marginTop: 4 }}>{aptAddress}</div>
+                  )}
+                </>
+              )
             )}
           </div>
           <button
@@ -245,6 +348,17 @@ export default function ApartmentProfileView({
     </div>
   );
 }
+
+const editInputStyle: React.CSSProperties = {
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "2px solid #d1d5db",
+  fontSize: "0.95rem",
+  fontWeight: 600,
+  fontFamily: "Inter, sans-serif",
+  width: "100%",
+  boxSizing: "border-box",
+};
 
 function SectionTitle({ text }: { text: string }) {
   return (

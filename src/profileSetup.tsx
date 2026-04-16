@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { User } from "firebase/auth";
 import { fetchAllApartments, createDefaultAllergies, createDefaultCanBring } from "./utils";
 import type { Apartment, CanBring, Allergies } from "./types";
@@ -30,6 +30,9 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
   const [apartments, setApartments] = useState<Apartment[]>([]);
   const [selectedApartmentId, setSelectedApartmentId] = useState("");
   const [newApartment, setNewApartment] = useState<{ name: string; address: string } | null>(null);
+  const [aptSearch, setAptSearch] = useState("");
+  const [aptDropdownOpen, setAptDropdownOpen] = useState(false);
+  const aptComboRef = useRef<HTMLDivElement>(null);
 
   // Foods user can bring (snake_case keys)
   const [canBring, setCanBring] = useState<CanBring>(createDefaultCanBring());
@@ -61,6 +64,22 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
   useEffect(() => {
     fetchAllApartments().then(setApartments);
   }, []);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (aptComboRef.current && !aptComboRef.current.contains(e.target as Node)) {
+        setAptDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const filteredApts = aptSearch.trim()
+    ? apartments.filter((a) =>
+        `${a.name} ${a.address}`.toLowerCase().includes(aptSearch.toLowerCase())
+      )
+    : [];
 
   const toggleCanBring = (key: keyof Omit<CanBring, "custom">) => {
     setCanBring((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -208,29 +227,96 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
 
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <label style={labelStyle}>Apartment</label>
-          <select
-            value={newApartment ? "new" : selectedApartmentId}
-            onChange={(e) => {
-              if (e.target.value === "new") {
-                setNewApartment({ name: "", address: "" });
-                setSelectedApartmentId("");
-              } else {
-                setNewApartment(null);
-                setSelectedApartmentId(e.target.value);
-              }
-            }}
-            style={inputStyle}
-          >
-            <option value="">-- Select Apartment (optional) --</option>
-            {apartments.map((apt) => (
-              <option key={apt.id} value={apt.id}>
-                {apt.name} — {apt.address}
-              </option>
-            ))}
-            <option value="new" style={{ color: "#2563eb", fontWeight: 600 }}>
-              + Create New Apartment
-            </option>
-          </select>
+          {selectedApartmentId && !newApartment ? (
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "12px 16px",
+              borderRadius: 12,
+              border: "2px solid #e5e7eb",
+              background: "#f9fafb",
+            }}>
+              <span>
+                <span style={{ fontWeight: 700, color: "#111827" }}>
+                  {apartments.find((a) => a.id === selectedApartmentId)?.name ?? aptSearch}
+                </span>
+                {apartments.find((a) => a.id === selectedApartmentId)?.address && (
+                  <span style={{ color: "#9ca3af", fontSize: "0.85rem" }}>
+                    {" — "}{apartments.find((a) => a.id === selectedApartmentId)?.address}
+                  </span>
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={() => { setSelectedApartmentId(""); setAptSearch(""); }}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af", fontSize: "1.1rem", lineHeight: 1, padding: "0 0 0 12px", fontWeight: 700 }}
+              >
+                ✕
+              </button>
+            </div>
+          ) : !newApartment && (
+            <div ref={aptComboRef} style={{ position: "relative" }}>
+              <input
+                value={aptSearch}
+                onChange={(e) => {
+                  setAptSearch(e.target.value);
+                  setSelectedApartmentId("");
+                  setAptDropdownOpen(true);
+                }}
+                onFocus={() => setAptDropdownOpen(true)}
+                placeholder="Search apartments..."
+                style={inputStyle}
+              />
+              {aptDropdownOpen && aptSearch.trim() && (
+                <div style={{
+                  position: "absolute",
+                  top: "calc(100% + 4px)",
+                  left: 0,
+                  right: 0,
+                  background: "white",
+                  border: "2px solid #e5e7eb",
+                  borderRadius: 12,
+                  zIndex: 200,
+                  maxHeight: 240,
+                  overflowY: "auto",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+                }}>
+                  {filteredApts.map((apt) => (
+                    <div
+                      key={apt.id}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setSelectedApartmentId(apt.id);
+                        setAptSearch(apt.name);
+                        setNewApartment(null);
+                        setAptDropdownOpen(false);
+                      }}
+                      style={{ padding: "10px 16px", cursor: "pointer", borderBottom: "1px solid #f3f4f6" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "#f9fafb")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "white")}
+                    >
+                      <span style={{ fontWeight: 700, color: "#111827" }}>{apt.name}</span>
+                      <span style={{ color: "#9ca3af", fontSize: "0.85rem" }}> — {apt.address}</span>
+                    </div>
+                  ))}
+                  <div
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setNewApartment({ name: aptSearch.trim(), address: "" });
+                      setSelectedApartmentId("");
+                      setAptDropdownOpen(false);
+                    }}
+                    style={{ padding: "10px 16px", cursor: "pointer", color: "#2563eb", fontWeight: 700 }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "#f9fafb")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "white")}
+                  >
+                    + Create New Apartment
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {newApartment && (

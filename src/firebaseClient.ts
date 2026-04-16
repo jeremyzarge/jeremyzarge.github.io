@@ -104,6 +104,16 @@ export async function createNumericApartmentId(name: string, address: string): P
 }
 
 /**
+ * Updates an existing apartment's name and address
+ * @param id - Apartment ID
+ * @param name - New apartment name
+ * @param address - New apartment address
+ */
+export async function updateApartment(id: string, name: string, address: string): Promise<void> {
+  await set(ref(rtdb, `apartments/${id}`), { name, address });
+}
+
+/**
  * Ensures a database path exists by creating an empty object if needed
  * @param path - Database path to ensure exists
  */
@@ -123,5 +133,6 @@ export default {
   getNumericIdFromUid,
   getUidFromNumericId,
   createNumericApartmentId,
+  updateApartment,
   ensurePathExists
 };
