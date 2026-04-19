@@ -7,7 +7,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
+    "deploy": "gh-pages -d dist",
+    "generate-pwa-assets": "pwa-assets-generator"
   },
   "dependencies": {
     "@types/react-datepicker": "^7.0.0",
@@ -19,10 +20,12 @@
   "devDependencies": {
     "@types/react": "^19.2.10",
     "@types/react-dom": "^19.2.3",
+    "@vite-pwa/assets-generator": "^1.0.2",
     "@vitejs/plugin-react": "^4.7.0",
     "gh-pages": "^6.3.0",
     "typescript": "^5.9.3",
-    "vite": "^4.5.14"
+    "vite": "^4.5.14",
+    "vite-plugin-pwa": "^1.2.0"
   },
   "homepage": "https://vitemeals.com"
 }
