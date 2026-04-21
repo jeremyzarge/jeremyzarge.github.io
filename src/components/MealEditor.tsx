@@ -9,6 +9,7 @@ import { createMeal } from "../index";
 import type { User } from "firebase/auth";
 import type { Meal, MealParticipant, UserWithId, Apartment } from "../types";
 import ClickableUserName from "./ClickableUserName";
+import { notifyUsers } from "../notifications";
 
 /** Food emoji and label mapping */
 const foodDisplayMap: Record<string, { emoji: string; label: string }> = {
@@ -643,19 +644,77 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
       return;
     }
 
+    const prevParticipants = originalMeal?.participants ?? {};
+    const newParticipants = meal.participants;
+    const myName = (() => {
+      const me = users.find((u) => u.id === currentUserId);
+      return me ? `${me.first_name} ${me.last_name}`.trim() : "The host";
+    })();
+
     setSaving(true);
     try {
       if (isCreateMode) {
-        // Create new meal
         await createMeal(meal);
         alert("Meal created!");
+        // Notify all invited participants (everyone except the creator)
+        const invitedIds = Object.keys(newParticipants).filter((id) => id !== currentUserId);
+        notifyUsers(invitedIds, {
+          title: "New meal invitation 🍽️",
+          body: `${myName} invited you to "${meal.title}"`,
+          tag: `meal-invite-new`,
+          data: { tab: "upcoming" },
+        });
         if (onCreated) onCreated();
         if (onClose) onClose();
       } else {
-        // Update existing meal — stay open, just update original state
         await set(ref(rtdb, `meal_events/${mealId}`), meal);
         setOriginalMeal(structuredClone(meal));
         alert("Meal updated!");
+
+        // Newly added participants
+        const addedIds = Object.keys(newParticipants).filter((id) => !prevParticipants[id] && id !== currentUserId);
+        notifyUsers(addedIds, {
+          title: "New meal invitation 🍽️",
+          body: `${myName} invited you to "${meal.title}"`,
+          tag: `meal-invite-${mealId}`,
+          data: { tab: "upcoming" },
+        });
+
+        // Removed participants
+        const removedIds = Object.keys(prevParticipants).filter((id) => !newParticipants[id] && id !== currentUserId);
+        notifyUsers(removedIds, {
+          title: "Removed from meal",
+          body: `You were removed from "${meal.title}"`,
+          tag: `meal-removed-${mealId}`,
+          data: { tab: "upcoming" },
+        });
+
+        // Datetime change — notify all other participants
+        if (originalMeal?.datetime && meal.datetime !== originalMeal.datetime) {
+          const otherIds = Object.keys(newParticipants).filter((id) => id !== currentUserId);
+          notifyUsers(otherIds, {
+            title: "Meal time updated 🕐",
+            body: `The time for "${meal.title}" has changed`,
+            tag: `meal-time-${mealId}`,
+            data: { tab: "upcoming" },
+          });
+        }
+
+        // Food assignment changed by host for a specific participant
+        if (isHost) {
+          for (const [uid, p] of Object.entries(newParticipants)) {
+            if (uid === currentUserId) continue;
+            const prev = prevParticipants[uid];
+            if (prev && p.food !== prev.food && p.food !== "none") {
+              notifyUsers([uid], {
+                title: "Food assignment updated",
+                body: `Your food for "${meal.title}" was changed to ${p.food}`,
+                tag: `meal-food-${mealId}-${uid}`,
+                data: { tab: "upcoming" },
+              });
+            }
+          }
+        }
       }
     } catch (err: any) {
       console.error(err);
@@ -677,6 +736,18 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     try {
       await set(ref(rtdb, `meal_events/${mealId}/participants/${currentUserId}`), myParticipant);
       setOriginalMeal(structuredClone(meal));
+      // Notify hosts that this participant updated their info
+      const hostIds = Object.entries(meal.participants)
+        .filter(([id, p]) => p.role === "host" && id !== currentUserId)
+        .map(([id]) => id);
+      const me = users.find((u) => u.id === currentUserId);
+      const myName = me ? `${me.first_name} ${me.last_name}`.trim() : "A participant";
+      notifyUsers(hostIds, {
+        title: "Participant updated",
+        body: `${myName} updated their food for "${meal.title}"`,
+        tag: `meal-participant-update-${mealId}-${currentUserId}`,
+        data: { tab: "upcoming" },
+      });
     } catch (err: any) {
       console.error(err);
       alert("Failed to save: " + err.message);
@@ -1714,7 +1785,13 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                   <div ref={messagesEndRef} />
                 </div>
                 {mealId && currentUserId && (
-                  <MessageInput mealId={mealId} currentUserId={currentUserId} onMessageSent={() => {
+                  <MessageInput
+                    mealId={mealId}
+                    currentUserId={currentUserId}
+                    participantIds={meal ? Object.keys(meal.participants) : []}
+                    mealTitle={meal?.title ?? ""}
+                    senderName={(() => { const me = users.find(u => u.id === currentUserId); return me ? `${me.first_name} ${me.last_name}`.trim() : "Someone"; })()}
+                    onMessageSent={() => {
                     // Reload meal to show new message
                     get(ref(rtdb, `meal_events/${mealId}`)).then((snap) => {
                       if (snap.exists()) {
@@ -1724,7 +1801,8 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                         setTimeout(() => scrollToBottomSmooth(), 100);
                       }
                     });
-                  }} />
+                  }}
+                  />
                 )}
               </>
             )}
@@ -1943,10 +2021,16 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
 function MessageInput({
   mealId,
   currentUserId,
+  participantIds,
+  mealTitle,
+  senderName,
   onMessageSent,
 }: {
   mealId: string;
   currentUserId: string;
+  participantIds: string[];
+  mealTitle: string;
+  senderName: string;
   onMessageSent: () => void;
 }) {
   const [text, setText] = useState("");
@@ -1960,11 +2044,19 @@ function MessageInput({
       const timestamp = Date.now();
       const id = `${timestamp}_${currentUserId}`;
 
-      // Save message directly to database
       await set(ref(rtdb, `meal_events/${mealId}/messages/${id}`), {
         user: currentUserId,
         text: text.trim(),
         timestamp,
+      });
+
+      // Notify all other participants
+      const others = participantIds.filter((id) => id !== currentUserId);
+      notifyUsers(others, {
+        title: `New message in "${mealTitle}"`,
+        body: `${senderName}: ${text.trim().slice(0, 80)}`,
+        tag: `meal-message-${mealId}`,
+        data: { tab: "upcoming" },
       });
 
       setText("");

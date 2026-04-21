@@ -533,7 +533,7 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
           </h3>
           {invitedMeals.map((m) => {
             const apt = apartments.find((a) => a.id === m.host_apartment_id);
-            const aptDisplay = apt ? formatApartmentName(apt) : "—";
+            const aptDisplay = apt ? apt.name : "—";
 
             return (
               <div

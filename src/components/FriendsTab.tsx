@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { notifyUsers } from "../notifications";
 import {
   acceptFriendRequest,
   rejectFriendRequest,
@@ -280,6 +281,14 @@ function IncomingRequests({
     setLoading(senderId);
     await acceptFriendRequest(currentUserId, senderId);
     setLoading(null);
+    const me = userMap[currentUserId];
+    const myName = me ? `${me.first_name} ${me.last_name}`.trim() : "Someone";
+    notifyUsers([senderId], {
+      title: "Friend request accepted!",
+      body: `${myName} accepted your friend request`,
+      tag: `friend-accepted-${currentUserId}`,
+      data: { tab: "friends" },
+    });
   }
 
   async function handleReject(senderId: string) {

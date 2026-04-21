@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { notifyUsers } from "../notifications";
 import { ref, get } from "firebase/database";
 import { rtdb } from "../firebaseClient";
 import { fetchAllApartments } from "../utils";
@@ -359,7 +360,17 @@ export default function UserProfileView({
                 label="Send Friend Request"
                 gradient="linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
                 loading={actionLoading}
-                onClick={() => handleAction(() => sendFriendRequest(currentUserId, userId))}
+                onClick={() => handleAction(async () => {
+                  await sendFriendRequest(currentUserId, userId);
+                  const me = allUsers.find((u) => u.id === currentUserId);
+                  const myName = me ? `${me.first_name} ${me.last_name}`.trim() : "Someone";
+                  notifyUsers([userId], {
+                    title: "New friend request",
+                    body: `${myName} sent you a friend request`,
+                    tag: `friend-request-${currentUserId}`,
+                    data: { tab: "friends" },
+                  });
+                })}
               />
             )}
             {status === "request_sent" && (

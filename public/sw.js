@@ -23,3 +23,31 @@ self.addEventListener("fetch", (e) => {
     );
   }
 });
+
+// ─── Push Notifications ───────────────────────────────────────────────────────
+
+self.addEventListener("push", (e) => {
+  const data = e.data ? e.data.json() : {};
+  e.waitUntil(
+    self.registration.showNotification(data.title || "ViteMeals", {
+      body: data.body || "",
+      icon: "/icon.svg",
+      badge: "/icon.svg",
+      tag: data.tag || "vitemeals",
+      data: data.data || {},
+      vibrate: [100, 50, 100],
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const target = e.notification.data?.url || "/";
+  e.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+      const existing = wins.find((w) => w.url.includes(self.location.origin));
+      if (existing) return existing.focus();
+      return clients.openWindow(target);
+    })
+  );
+});

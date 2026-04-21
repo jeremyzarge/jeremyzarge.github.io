@@ -18,6 +18,7 @@ import UserProfileView from "./components/UserProfileView";
 import ApartmentProfileView from "./components/ApartmentProfileView";
 import type { UserProfile, Apartment, UserWithId, UserRelationship, CanBring, Allergies } from "./types";
 import { claimMealInvite } from "./inviteService";
+import { initPushNotifications, removePushSubscription, notifyUsers } from "./notifications";
 
 const { auth } = firebaseClient;
 
@@ -122,6 +123,9 @@ export default function App() {
 
         setUsers(allUsers);
         setApartments(allApartments);
+
+        // Register this device for push notifications (non-blocking)
+        initPushNotifications(numericId);
 
         // Claim a pending invite link if one was in the URL
         if (pendingInviteToken.current) {
@@ -438,7 +442,7 @@ export default function App() {
           ✏️ Edit Profile
         </button>
         <button
-          onClick={() => signOut(auth)}
+          onClick={() => { if (myId) removePushSubscription(myId); signOut(auth); }}
           style={{
             padding: "12px 20px",
             borderRadius: 50,
@@ -557,7 +561,7 @@ export default function App() {
           </button>
           <div style={{ flex: 1 }} />
           <button
-            onClick={() => signOut(auth)}
+            onClick={() => { if (myId) removePushSubscription(myId); signOut(auth); }}
             style={{
               padding: "14px 32px",
               borderRadius: 50,
@@ -688,6 +692,21 @@ export default function App() {
           onClose={() => setViewingInvitedMealId(null)}
           onAccept={async () => {
             await set(ref(rtdb, `meal_events/${viewingInvitedMealId}/participants/${myId}/accepted`), true);
+            // Notify meal hosts
+            const mealSnap = await get(ref(rtdb, `meal_events/${viewingInvitedMealId}`));
+            if (mealSnap.exists()) {
+              const mealData = mealSnap.val();
+              const hostIds = Object.entries(mealData.participants ?? {})
+                .filter(([id, p]: [string, any]) => p.role === "host" && id !== myId)
+                .map(([id]) => id);
+              const myName = profile ? `${profile.first_name} ${profile.last_name}`.trim() : "Someone";
+              notifyUsers(hostIds, {
+                title: "Invitation accepted!",
+                body: `${myName} accepted the invite to "${mealData.title ?? "your meal"}"`,
+                tag: `meal-accepted-${viewingInvitedMealId}-${myId}`,
+                data: { tab: "upcoming" },
+              });
+            }
             setViewingInvitedMealId(null);
           }}
           onReject={async () => {
