@@ -3,9 +3,6 @@ interface FloatingAddButtonProps {
   onClick: () => void;
 }
 
-/**
- * Floating action button for creating new meals with hover tooltip
- */
 export default function FloatingAddButton({ onClick }: FloatingAddButtonProps) {
   return (
     <button
@@ -23,6 +20,7 @@ export default function FloatingAddButton({ onClick }: FloatingAddButtonProps) {
         color: "white",
         fontSize: "1.1rem",
         fontWeight: 700,
+        fontFamily: "Inter, sans-serif",
         lineHeight: "1",
         cursor: "pointer",
         boxShadow: "0 8px 24px rgba(16, 185, 129, 0.4)",
@@ -32,6 +30,7 @@ export default function FloatingAddButton({ onClick }: FloatingAddButtonProps) {
         justifyContent: "center",
         gap: 8,
         whiteSpace: "nowrap",
+        zIndex: 400,
       }}
       title="Create a new meal"
     >

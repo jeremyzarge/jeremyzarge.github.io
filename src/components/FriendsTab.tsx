@@ -73,9 +73,12 @@ export default function FriendsTab({
   ];
 
   return (
-    <div>
+    <div style={{ maxWidth: 1200, margin: "20px auto" }}>
+      <h2 className="page-title" style={{ marginBottom: 16, color: "white", textShadow: "2px 2px 4px rgba(0,0,0,0.2)", fontWeight: 800, textAlign: "center" }}>
+        Friends
+      </h2>
       {/* Search Bar */}
-      <div style={{ marginBottom: 20 }}>
+      <div style={{ marginBottom: 20, display: "flex", justifyContent: "center" }}>
         <input
           type="text"
           placeholder="Search for people..."
@@ -141,12 +144,12 @@ export default function FriendsTab({
         style={{
           display: "flex",
           gap: 8,
-          marginBottom: 20,
           background: "white",
           padding: 6,
           borderRadius: 50,
           boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
           width: "fit-content",
+          margin: "0 auto 20px",
         }}
       >
         {subTabs.map((t) => (
@@ -177,9 +180,8 @@ export default function FriendsTab({
         style={{
           background: "white",
           borderRadius: 16,
-          padding: 20,
+          padding: "12px 16px",
           boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-          minHeight: 120,
         }}
       >
         {activeSubTab === "friends" && (

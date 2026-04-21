@@ -39,9 +39,9 @@ export default function MealList({
         boxShadow: "0 4px 20px rgba(0,0,0,0.05)",
       }}
     >
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <table className="meal-ledger-table" style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
-          <tr style={{ textAlign: "left", borderBottom: "2px solid #80deea" }}>
+          <tr style={{ textAlign: "center", borderBottom: "2px solid #80deea" }}>
             <th style={{ padding: "12px 8px" }}>
               {apartmentMode ? "Apartment" : "User"}
             </th>
@@ -60,13 +60,14 @@ export default function MealList({
                 transition: "background 0.2s",
               }}
             >
-              <td style={{ padding: 12, textAlign: "left" }}>
+              <td style={{ padding: 12, textAlign: "center"}}>
                 {onViewProfile && !apartmentMode ? (
                   <ClickableUserName
                     userId={u.id}
                     firstName={u.first_name}
                     lastName={u.last_name}
                     onClick={onViewProfile}
+                    style={{ whiteSpace: "normal", overflow: "visible", textOverflow: "unset", textAlign: "center", width: "100%" }}
                   />
                 ) : onViewApartment && apartmentMode ? (
                   <ApartmentLink name={u.first_name} onClick={() => onViewApartment(u.id)} />
@@ -75,13 +76,13 @@ export default function MealList({
                 )}
               </td>
               {showApartment && !apartmentMode && (
-                <td style={{ padding: 12, textAlign: "left" }}>
+                <td style={{ padding: 12, textAlign: "center"}}>
                   {onViewApartment && u.apartment
                     ? <ApartmentLink name={u.apartment.name} onClick={() => onViewApartment(u.apartment!.id)} />
                     : u.apartment?.name ?? "-"}
                 </td>
               )}
-              <td style={{ padding: 12, textAlign: "left" }}>{formatNumber(meals[u.id] ?? 0)}</td>
+              <td style={{ padding: 12, textAlign: "center"}}>{formatNumber(meals[u.id] ?? 0)}</td>
             </tr>
           ))}
         </tbody>
@@ -108,7 +109,7 @@ function ApartmentLink({ name, onClick }: { name: string; onClick: () => void })
         fontWeight: 700,
         cursor: "pointer",
         textDecoration: hovered ? "underline" : "none",
-        textAlign: "left",
+        textAlign: "center",
       }}
     >
       {name}

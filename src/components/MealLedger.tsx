@@ -98,7 +98,7 @@ export default function MealLedger({ currentUserId, friendIds, onViewProfile, on
   }, [currentUserId, friendIds]);
 
   if (!meals || !users || !apartments) {
-    return <div style={{ padding: 20 }}>Loading Meal Ledger…</div>;
+    return null;
   }
 
   // Calculate apartment average balances (only apartments with relevant users, excluding own)
@@ -117,18 +117,21 @@ export default function MealLedger({ currentUserId, friendIds, onViewProfile, on
     });
 
   return (
-    <div style={{ marginBottom: 20 }}>
+    <div style={{ maxWidth: 1200, margin: "20px auto" }}>
+      <h2 className="page-title" style={{ marginBottom: 16, color: "white", textShadow: "2px 2px 4px rgba(0,0,0,0.2)", fontWeight: 800, textAlign: "center" }}>
+        Meal Ledger
+      </h2>
       <div
         className="tab-bar"
         style={{
           display: "flex",
           gap: 10,
-          marginBottom: 24,
           background: "white",
           padding: 8,
           borderRadius: 50,
           boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
           width: "fit-content",
+          margin: "0 auto 24px",
         }}
       >
         <button

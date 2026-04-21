@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from "react";
 import { ref, get, set, remove } from "firebase/database";
+import { signOut } from "firebase/auth";
 import type { User } from "firebase/auth";
 import firebaseClient, { rtdb, ensureUserNumericMapping, createNumericApartmentId, loginWithGoogle } from "./firebaseClient";
 import { createOrUpdateUserNumeric } from "./index";
@@ -50,7 +51,8 @@ export default function App() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [needsProfile, setNeedsProfile] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"ledger" | "past" | "upcoming" | "friends">("ledger");
+  const [authInitialized, setAuthInitialized] = useState(false);
+  const [activeTab, setActiveTab] = useState<"ledger" | "past" | "upcoming" | "friends" | "profile">("ledger");
   const [showCreate, setShowCreate] = useState(false);
   const [showProfileEditor, setShowProfileEditor] = useState(false);
   const [viewingProfileUserId, setViewingProfileUserId] = useState<string | null>(null);
@@ -80,6 +82,7 @@ export default function App() {
    */
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (u) => {
+      setAuthInitialized(true);
       setAuthUser(u);
       if (!u) {
         setMyId(null);
@@ -259,8 +262,51 @@ export default function App() {
     setShowProfileEditor(false);
   }
 
+  // Splash screen while Firebase resolves auth from IndexedDB (prevents login flash)
+  if (!authInitialized) {
+    return (
+      <div style={{
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        alignItems: "center",
+        minHeight: "100vh",
+        gap: 20,
+      }}>
+        <img src="/icon.svg" alt="ViteMeals" style={{ width: 80, height: 80, borderRadius: 20 }} />
+        <div style={{
+          width: 36,
+          height: 36,
+          border: "3px solid rgba(255,255,255,0.3)",
+          borderTopColor: "white",
+          borderRadius: "50%",
+          animation: "spin 0.8s linear infinite",
+        }} />
+      </div>
+    );
+  }
+
   if (loading) {
-    return <div style={{ padding: 20 }}>Loading...</div>;
+    return (
+      <div style={{
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        alignItems: "center",
+        minHeight: "100vh",
+        gap: 20,
+      }}>
+        <img src="/icon.svg" alt="ViteMeals" style={{ width: 80, height: 80, borderRadius: 20 }} />
+        <div style={{
+          width: 36,
+          height: 36,
+          border: "3px solid rgba(255,255,255,0.3)",
+          borderTopColor: "white",
+          borderRadius: "50%",
+          animation: "spin 0.8s linear infinite",
+        }} />
+      </div>
+    );
   }
 
   // Show login screen if not authenticated
@@ -347,10 +393,21 @@ export default function App() {
     return <div style={{ padding: 20 }}>Loading profile…</div>;
   }
 
+  const displayName = profile?.first_name
+    ? `${profile.first_name} ${profile.last_name}`
+    : authUser?.displayName ?? "User";
+
+  const initials = (
+    (profile?.first_name?.charAt(0) ?? "") +
+    (profile?.last_name?.charAt(0) ?? "")
+  ).toUpperCase() || "?";
+
   return (
-    <div style={{ width: "100%", maxWidth: 1200, margin: "0 auto" }}>
+    <div className="has-bottom-nav" style={{ width: "100%", maxWidth: 1200, margin: "0 auto" }}>
+
+      {/* Desktop welcome header — hidden on mobile (profile tab handles it) */}
       <div
-        className="welcome-header"
+        className="welcome-header mobile-hidden"
         style={{
           display: "flex",
           justifyContent: "space-between",
@@ -361,11 +418,7 @@ export default function App() {
         }}
       >
         <h1 style={{ color: "white", margin: 0, textShadow: "2px 2px 4px rgba(0,0,0,0.2)" }}>
-          Welcome back,{" "}
-          {profile?.first_name
-            ? `${profile.first_name} ${profile.last_name}`
-            : authUser?.displayName ?? "User"}
-          !
+          Welcome back, {displayName}!
         </h1>
         <button
           onClick={() => setShowProfileEditor(true)}
@@ -376,17 +429,35 @@ export default function App() {
             background: "white",
             color: "#4f46e5",
             fontWeight: 700,
+            fontFamily: "Inter, sans-serif",
             cursor: "pointer",
             fontSize: "1rem",
             boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
           }}
-          title="Edit your profile"
         >
           ✏️ Edit Profile
         </button>
+        <button
+          onClick={() => signOut(auth)}
+          style={{
+            padding: "12px 20px",
+            borderRadius: 50,
+            border: "none",
+            background: "rgba(255,255,255,0.2)",
+            color: "white",
+            fontWeight: 700,
+            fontFamily: "Inter, sans-serif",
+            cursor: "pointer",
+            fontSize: "1rem",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+            backdropFilter: "blur(8px)",
+          }}
+        >
+          Sign Out
+        </button>
       </div>
 
-      <Tabs active={activeTab} onChange={(tab) => setActiveTab(tab as "ledger" | "past" | "upcoming" | "friends")} />
+      <Tabs active={activeTab} onChange={(tab) => setActiveTab(tab as typeof activeTab)} />
 
       {activeTab === "ledger" && (
         <MealLedger
@@ -405,6 +476,7 @@ export default function App() {
           authUser={authUser}
           friendIds={friendIds}
           onViewProfile={(id: string) => setViewingProfileUserId(id)}
+          onViewApartment={(id: string) => setViewingApartmentId(id)}
         />
       )}
       {activeTab === "upcoming" && (
@@ -416,6 +488,7 @@ export default function App() {
           authUser={authUser}
           friendIds={friendIds}
           onViewProfile={(id: string) => setViewingProfileUserId(id)}
+          onViewApartment={(id: string) => setViewingApartmentId(id)}
         />
       )}
       {activeTab === "friends" && (
@@ -427,7 +500,85 @@ export default function App() {
         />
       )}
 
-      <FloatingAddButton onClick={() => setShowCreate(true)} />
+      {/* Mobile profile tab — desktop nav handles profile actions */}
+      {activeTab === "profile" && (
+        <div style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 20,
+          padding: "24px 16px",
+          minHeight: "60vh",
+        }}>
+          <div style={{
+            width: 88,
+            height: 88,
+            borderRadius: 44,
+            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: "0 4px 20px rgba(0,0,0,0.25)",
+            border: "3px solid rgba(255,255,255,0.8)",
+            flexShrink: 0,
+          }}>
+            <span style={{ fontSize: "2rem", fontWeight: 800, color: "white", fontFamily: "Inter, sans-serif" }}>
+              {initials}
+            </span>
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <h2 style={{ color: "white", margin: "0 0 4px", textShadow: "2px 2px 4px rgba(0,0,0,0.2)", fontSize: "1.4rem" }}>
+              {displayName}
+            </h2>
+            {authUser?.email && (
+              <p style={{ color: "rgba(255,255,255,0.75)", margin: 0, fontSize: "0.9rem" }}>
+                {authUser.email}
+              </p>
+            )}
+          </div>
+          <button
+            onClick={() => setShowProfileEditor(true)}
+            style={{
+              padding: "14px 32px",
+              borderRadius: 50,
+              border: "none",
+              background: "white",
+              color: "#4f46e5",
+              fontWeight: 700,
+              fontFamily: "Inter, sans-serif",
+              fontSize: "1rem",
+              cursor: "pointer",
+              boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
+              width: "100%",
+              maxWidth: 280,
+            }}
+          >
+            ✏️ Edit Profile
+          </button>
+          <div style={{ flex: 1 }} />
+          <button
+            onClick={() => signOut(auth)}
+            style={{
+              padding: "14px 32px",
+              borderRadius: 50,
+              border: "2px solid rgba(255,255,255,0.4)",
+              background: "rgba(255,255,255,0.15)",
+              color: "white",
+              fontWeight: 700,
+              fontFamily: "Inter, sans-serif",
+              fontSize: "1rem",
+              cursor: "pointer",
+              backdropFilter: "blur(8px)",
+              width: "100%",
+              maxWidth: 280,
+            }}
+          >
+            Sign Out
+          </button>
+        </div>
+      )}
+
+      {activeTab !== "profile" && <FloatingAddButton onClick={() => setShowCreate(true)} />}
 
       {showCreate && (
         <MealEditor

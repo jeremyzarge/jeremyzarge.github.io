@@ -130,7 +130,7 @@ export default function ApartmentProfileView({
         justifyContent: "center",
         alignItems: "flex-start",
         padding: "40px 20px",
-        zIndex: 1000,
+        zIndex: 1100,
         overflowY: "auto",
         backdropFilter: "blur(4px)",
       }}

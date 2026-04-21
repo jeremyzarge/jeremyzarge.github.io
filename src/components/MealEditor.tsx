@@ -1199,7 +1199,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
               </div>
             ) : (
               <div
-                className="participant-table"
+                className={`participant-table${isPastMeal ? "" : " participant-table--active"}`}
                 style={{
                   overflowX: "auto",
                   background: "white",
@@ -1213,7 +1213,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                       {!isPastMeal && <th style={{ width: 44, padding: "14px 4px 14px 12px" }} />}
                       <th
                         style={{
-                          textAlign: "left",
+                          textAlign: "center",
                           padding: "14px 12px",
                           fontWeight: 800,
                           fontSize: "0.9rem",
@@ -1223,8 +1223,9 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                         Name
                       </th>
                       <th
+                        className="col-food"
                         style={{
-                          textAlign: "left",
+                          textAlign: "center",
                           padding: "14px 12px",
                           fontWeight: 800,
                           fontSize: "0.9rem",
@@ -1235,7 +1236,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                       </th>
                       <th
                         style={{
-                          textAlign: "left",
+                          textAlign: "center",
                           padding: "14px 12px",
                           fontWeight: 800,
                           fontSize: "0.9rem",
@@ -1246,7 +1247,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                       </th>
                       <th
                         style={{
-                          textAlign: "left",
+                          textAlign: "center",
                           padding: "14px 12px",
                           fontWeight: 800,
                           fontSize: "0.9rem",
@@ -1303,6 +1304,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                               {isHost && (
                                 <button
                                   type="button"
+                                  className="remove-btn"
                                   onClick={() => removeParticipant(userId)}
                                   title="Remove from meal"
                                   style={{
@@ -1333,6 +1335,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                                 firstName={user.first_name}
                                 lastName={user.last_name}
                                 onClick={onViewProfile}
+                                style={{ whiteSpace: "normal", overflow: "visible", textOverflow: "unset" }}
                               />
                             ) : (
                               <>{user.first_name} {user.last_name}</>
@@ -1378,7 +1381,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                               value={participant.specifics}
                               onChange={(e) => setSpecificsForParticipant(userId, e.target.value)}
                               disabled={isPastMeal || (!isHost && userId !== currentUserNumericId)}
-                              placeholder="e.g., vegan, GF"
+                              placeholder="e.g. Chicken, Rice, etc"
                               style={{
                                 padding: "8px 12px",
                                 borderRadius: 8,
@@ -1397,6 +1400,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                               return (
                                 <button
                                   type="button"
+                                  className="role-btn"
                                   onClick={() => toggleRole(userId)}
                                   disabled={!canToggle}
                                   title={isResident && participant.role === "host" ? "Residents of host apartment must be hosts" : ""}
@@ -1414,6 +1418,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                                     cursor: canToggle ? "pointer" : "not-allowed",
                                     boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
                                     opacity: canToggle ? 1 : 0.6,
+                                    whiteSpace: "nowrap",
                                   }}
                                 >
                                   {participant.role === "host" ? "🏠 Host" : "Guest"}
@@ -1426,17 +1431,19 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                               {(isHost || userId === currentUserNumericId) && !invitedMode && (
                                 <button
                                   type="button"
+                                  className="add-item-btn"
                                   onClick={() => addAdditionalItem(userId)}
                                   style={{
-                                    padding: "6px 12px",
-                                    borderRadius: 8,
+                                    padding: "6px 14px",
+                                    borderRadius: 20,
                                     border: "none",
                                     background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
                                     color: "white",
                                     cursor: "pointer",
                                     fontWeight: 700,
                                     fontSize: "0.85rem",
-                                    boxShadow: "0 2px 6px rgba(16,185,129,0.3)",
+                                    whiteSpace: "nowrap",
+                                    boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
                                   }}
                                 >
                                   Add Item
@@ -1458,6 +1465,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                                   {canEditItem && (
                                     <button
                                       type="button"
+                                      className="remove-btn"
                                       onClick={() => removeAdditionalItem(userId, idx)}
                                       title="Remove item"
                                       style={{
@@ -1518,7 +1526,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                                   value={item.specifics}
                                   onChange={(e) => setAdditionalItemSpecifics(userId, idx, e.target.value)}
                                   disabled={!canEditItem}
-                                  placeholder="e.g., vegan, GF"
+                                  placeholder="e.g. Chicken, Rice, etc"
                                   style={{
                                     padding: "6px 10px",
                                     borderRadius: 8,
@@ -1575,6 +1583,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                             firstName={user.first_name}
                             lastName={user.last_name}
                             onClick={onViewProfile}
+                            style={{ whiteSpace: "normal", overflow: "visible", textOverflow: "unset" }}
                           />
                         ) : (
                           <>{user?.first_name} {user?.last_name}</>

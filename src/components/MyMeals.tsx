@@ -1,7 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from "react";
 import { rtdb } from "../firebaseClient";
 import { ref, get, set, remove, onValue } from "firebase/database";
-import { formatApartmentName } from "../utils";
 import type { User } from "firebase/auth";
 import type { Apartment, UserWithId, Meal, LegacyMeal } from "../types";
 import MealEditor from "./MealEditor";
@@ -14,6 +13,7 @@ interface MyMealsProps {
   authUser: User | null;
   friendIds?: string[];
   onViewProfile?: (userId: string) => void;
+  onViewApartment?: (apartmentId: string) => void;
 }
 
 type MealWithId = (Meal | LegacyMeal) & { id: string };
@@ -21,7 +21,7 @@ type MealWithId = (Meal | LegacyMeal) & { id: string };
 /**
  * Displays user's meal history with filtering and sorting
  */
-export default function MyMeals({ myId, users, apartments, mode, authUser, friendIds, onViewProfile }: MyMealsProps) {
+export default function MyMeals({ myId, users, apartments, mode, authUser, friendIds, onViewProfile, onViewApartment }: MyMealsProps) {
   const [mealEvents, setMealEvents] = useState<MealWithId[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedMealId, setSelectedMealId] = useState<string | null>(null);
@@ -33,6 +33,7 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
   const [selectedApartment, setSelectedApartment] = useState("");
   const [hostGuestFilter, setHostGuestFilter] = useState("");
   const [sortBy, setSortBy] = useState("date_desc");
+  const [showAdvanced, setShowAdvanced] = useState(() => window.innerWidth > 768);
 
   // Searchable combobox states
   const [userSearch, setUserSearch] = useState("");
@@ -224,11 +225,11 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
     return { acceptedMeals: accepted, invitedMeals: invited };
   }, [filteredMeals, myId, mode]);
 
-  if (loading) return <div style={{ padding: 20 }}>Loading meals...</div>;
+  if (loading) return null;
 
   return (
     <div style={{ maxWidth: 1200, margin: "20px auto", fontFamily: "'Inter', sans-serif" }}>
-      <h2 style={{ marginBottom: 16, color: "white", textShadow: "2px 2px 4px rgba(0,0,0,0.2)", fontWeight: 800 }}>
+      <h2 className="page-title" style={{ marginBottom: 16, color: "white", textShadow: "2px 2px 4px rgba(0,0,0,0.2)", fontWeight: 800, textAlign: "center" }}>
         {mode === "past" ? "Past" : "Upcoming"} Meals
       </h2>
 
@@ -236,7 +237,7 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
       <div
         style={{
           background: "white",
-          padding: 20,
+          padding: 16,
           borderRadius: 16,
           boxShadow: "0 8px 24px rgba(0,0,0,0.1)",
           marginBottom: 20,
@@ -246,7 +247,9 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
           backgroundClip: "padding-box, border-box",
         }}
       >
+        {/* Desktop heading */}
         <h4
+          className="mobile-hidden"
           style={{
             margin: "0 0 16px 0",
             fontWeight: 800,
@@ -259,228 +262,253 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
         >
           Filter & Sort
         </h4>
-        <div
-          className="filter-grid"
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-            gap: 12,
-          }}
-        >
+
+        {/* Search bar + mobile advanced toggle */}
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <input
-            placeholder="🔍 Search title..."
+            placeholder="🔍 Search meals..."
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             style={{
-              padding: "12px 16px",
+              flex: 1,
+              padding: "10px 16px",
               borderRadius: 12,
               border: "2px solid #fde68a",
               background: "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)",
               color: "#78350f",
               fontWeight: 700,
               fontSize: "0.95rem",
-              transition: "all 0.2s ease",
               fontFamily: "Inter, sans-serif",
             }}
           />
-
-          {/* User searchable combobox */}
-          <div ref={userComboRef} style={{ position: "relative" }}>
-            <input
-              placeholder="👤 All Users"
-              value={userSearch}
-              onChange={(e) => {
-                setUserSearch(e.target.value);
-                setUserDropdownOpen(true);
-                if (!e.target.value) setSelectedUser("");
-              }}
-              onFocus={() => setUserDropdownOpen(true)}
-              style={{
-                width: "100%",
-                padding: "12px 16px",
-                borderRadius: 12,
-                border: "2px solid #93c5fd",
-                background: "linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)",
-                color: "#1e3a8a",
-                fontWeight: 700,
-                fontSize: "0.95rem",
-                fontFamily: "Inter, sans-serif",
-                boxSizing: "border-box",
-                outline: "none",
-              }}
-            />
-            {userDropdownOpen && userSearch.trim() && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: "calc(100% + 4px)",
-                  left: 0,
-                  right: 0,
-                  background: "white",
-                  border: "2px solid #93c5fd",
-                  borderRadius: 12,
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
-                  zIndex: 100,
-                  maxHeight: 220,
-                  overflowY: "auto",
-                }}
-              >
-                <div
-                  onMouseDown={() => { setSelectedUser(""); setUserSearch(""); setUserDropdownOpen(false); }}
-                  style={{ padding: "10px 16px", cursor: "pointer", fontWeight: 700, color: "#6b7280", fontSize: "0.9rem" }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                >
-                  👤 All Users
-                </div>
-                {users
-                  .filter((u) => `${u.first_name} ${u.last_name}`.toLowerCase().includes(userSearch.toLowerCase()))
-                  .map((u) => (
-                    <div
-                      key={u.id}
-                      onMouseDown={() => {
-                        setSelectedUser(u.id);
-                        setUserSearch(`${u.first_name} ${u.last_name}`);
-                        setUserDropdownOpen(false);
-                      }}
-                      style={{
-                        padding: "10px 16px",
-                        cursor: "pointer",
-                        fontWeight: selectedUser === u.id ? 700 : 500,
-                        color: "#1e3a8a",
-                        fontSize: "0.9rem",
-                        background: selectedUser === u.id ? "#dbeafe" : "transparent",
-                      }}
-                      onMouseEnter={(e) => { if (selectedUser !== u.id) e.currentTarget.style.background = "#eff6ff"; }}
-                      onMouseLeave={(e) => { if (selectedUser !== u.id) e.currentTarget.style.background = "transparent"; }}
-                    >
-                      {u.first_name} {u.last_name}
-                    </div>
-                  ))}
-              </div>
-            )}
-          </div>
-
-          {/* Apartment searchable combobox */}
-          <div ref={aptComboRef} style={{ position: "relative" }}>
-            <input
-              placeholder="🏠 All Apartments"
-              value={aptSearch}
-              onChange={(e) => {
-                setAptSearch(e.target.value);
-                setAptDropdownOpen(true);
-                if (!e.target.value) setSelectedApartment("");
-              }}
-              onFocus={() => setAptDropdownOpen(true)}
-              style={{
-                width: "100%",
-                padding: "12px 16px",
-                borderRadius: 12,
-                border: "2px solid #7dd3fc",
-                background: "linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)",
-                color: "#0c4a6e",
-                fontWeight: 700,
-                fontSize: "0.95rem",
-                fontFamily: "Inter, sans-serif",
-                boxSizing: "border-box",
-                outline: "none",
-              }}
-            />
-            {aptDropdownOpen && aptSearch.trim() && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: "calc(100% + 4px)",
-                  left: 0,
-                  right: 0,
-                  background: "white",
-                  border: "2px solid #7dd3fc",
-                  borderRadius: 12,
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
-                  zIndex: 100,
-                  maxHeight: 220,
-                  overflowY: "auto",
-                }}
-              >
-                <div
-                  onMouseDown={() => { setSelectedApartment(""); setAptSearch(""); setAptDropdownOpen(false); }}
-                  style={{ padding: "10px 16px", cursor: "pointer", fontWeight: 700, color: "#6b7280", fontSize: "0.9rem" }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = "#f0f9ff"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                >
-                  🏠 All Apartments
-                </div>
-                {apartments
-                  .filter((a) => a.name.toLowerCase().includes(aptSearch.toLowerCase()))
-                  .map((a) => (
-                    <div
-                      key={a.id}
-                      onMouseDown={() => {
-                        setSelectedApartment(a.id);
-                        setAptSearch(a.name);
-                        setAptDropdownOpen(false);
-                      }}
-                      style={{
-                        padding: "10px 16px",
-                        cursor: "pointer",
-                        fontWeight: selectedApartment === a.id ? 700 : 500,
-                        color: "#0c4a6e",
-                        fontSize: "0.9rem",
-                        background: selectedApartment === a.id ? "#e0f2fe" : "transparent",
-                      }}
-                      onMouseEnter={(e) => { if (selectedApartment !== a.id) e.currentTarget.style.background = "#f0f9ff"; }}
-                      onMouseLeave={(e) => { if (selectedApartment !== a.id) e.currentTarget.style.background = "transparent"; }}
-                    >
-                      {a.name}
-                    </div>
-                  ))}
-              </div>
-            )}
-          </div>
-
-          <select
-            value={hostGuestFilter}
-            onChange={(e) => setHostGuestFilter(e.target.value)}
+          <button
+            className="filters-toggle-btn"
+            onClick={() => setShowAdvanced((v) => !v)}
             style={{
-              padding: "12px 16px",
-              borderRadius: 12,
-              border: "2px solid #6ee7b7",
-              background: "linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)",
-              color: "#065f46",
-              fontWeight: 700,
-              fontSize: "0.95rem",
-              transition: "all 0.2s ease",
-              fontFamily: "Inter, sans-serif",
-              cursor: "pointer",
-            }}
-          >
-            <option value="">🎭 All Roles</option>
-            <option value="host">Host</option>
-            <option value="guest">Guest</option>
-          </select>
-
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            style={{
-              padding: "12px 16px",
+              padding: "10px 16px",
               borderRadius: 12,
               border: "2px solid #c4b5fd",
-              background: "linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%)",
-              color: "#5b21b6",
+              background: showAdvanced
+                ? "linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)"
+                : "linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%)",
+              color: showAdvanced ? "white" : "#5b21b6",
               fontWeight: 700,
-              fontSize: "0.95rem",
-              transition: "all 0.2s ease",
-              fontFamily: "Inter, sans-serif",
+              fontSize: "0.9rem",
               cursor: "pointer",
+              fontFamily: "Inter, sans-serif",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
             }}
           >
-            <option value="date_desc">📅 Date ↓</option>
-            <option value="date_asc">📅 Date ↑</option>
-            <option value="title_asc">🔤 Title A→Z</option>
-            <option value="title_desc">🔤 Title Z→A</option>
-          </select>
+            {showAdvanced ? "▲ Filters" : "▼ Filters"}
+          </button>
         </div>
+
+        {/* Advanced filters — always shown on desktop, toggled on mobile */}
+        <div
+          className="filters-advanced"
+          style={{
+            display: showAdvanced ? "grid" : "none",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+            gap: 12,
+            marginTop: 12,
+          }}
+        >
+            {/* User searchable combobox */}
+            <div ref={userComboRef} style={{ position: "relative" }}>
+              <input
+                placeholder="👤 All Users"
+                value={userSearch}
+                onChange={(e) => {
+                  setUserSearch(e.target.value);
+                  setUserDropdownOpen(true);
+                  if (!e.target.value) setSelectedUser("");
+                }}
+                onFocus={() => setUserDropdownOpen(true)}
+                style={{
+                  width: "100%",
+                  padding: "10px 16px",
+                  borderRadius: 12,
+                  border: "2px solid #93c5fd",
+                  background: "linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)",
+                  color: "#1e3a8a",
+                  fontWeight: 700,
+                  fontSize: "0.95rem",
+                  fontFamily: "Inter, sans-serif",
+                  boxSizing: "border-box",
+                  outline: "none",
+                }}
+              />
+              {userDropdownOpen && userSearch.trim() && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 4px)",
+                    left: 0,
+                    right: 0,
+                    background: "white",
+                    border: "2px solid #93c5fd",
+                    borderRadius: 12,
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+                    zIndex: 100,
+                    maxHeight: 220,
+                    overflowY: "auto",
+                  }}
+                >
+                  <div
+                    onMouseDown={() => { setSelectedUser(""); setUserSearch(""); setUserDropdownOpen(false); }}
+                    style={{ padding: "10px 16px", cursor: "pointer", fontWeight: 700, color: "#6b7280", fontSize: "0.9rem" }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                  >
+                    👤 All Users
+                  </div>
+                  {users
+                    .filter((u) => `${u.first_name} ${u.last_name}`.toLowerCase().includes(userSearch.toLowerCase()))
+                    .map((u) => (
+                      <div
+                        key={u.id}
+                        onMouseDown={() => {
+                          setSelectedUser(u.id);
+                          setUserSearch(`${u.first_name} ${u.last_name}`);
+                          setUserDropdownOpen(false);
+                        }}
+                        style={{
+                          padding: "10px 16px",
+                          cursor: "pointer",
+                          fontWeight: selectedUser === u.id ? 700 : 500,
+                          color: "#1e3a8a",
+                          fontSize: "0.9rem",
+                          background: selectedUser === u.id ? "#dbeafe" : "transparent",
+                        }}
+                        onMouseEnter={(e) => { if (selectedUser !== u.id) e.currentTarget.style.background = "#eff6ff"; }}
+                        onMouseLeave={(e) => { if (selectedUser !== u.id) e.currentTarget.style.background = "transparent"; }}
+                      >
+                        {u.first_name} {u.last_name}
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+
+            {/* Apartment searchable combobox */}
+            <div ref={aptComboRef} style={{ position: "relative" }}>
+              <input
+                placeholder="🏠 All Apartments"
+                value={aptSearch}
+                onChange={(e) => {
+                  setAptSearch(e.target.value);
+                  setAptDropdownOpen(true);
+                  if (!e.target.value) setSelectedApartment("");
+                }}
+                onFocus={() => setAptDropdownOpen(true)}
+                style={{
+                  width: "100%",
+                  padding: "10px 16px",
+                  borderRadius: 12,
+                  border: "2px solid #7dd3fc",
+                  background: "linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)",
+                  color: "#0c4a6e",
+                  fontWeight: 700,
+                  fontSize: "0.95rem",
+                  fontFamily: "Inter, sans-serif",
+                  boxSizing: "border-box",
+                  outline: "none",
+                }}
+              />
+              {aptDropdownOpen && aptSearch.trim() && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 4px)",
+                    left: 0,
+                    right: 0,
+                    background: "white",
+                    border: "2px solid #7dd3fc",
+                    borderRadius: 12,
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+                    zIndex: 100,
+                    maxHeight: 220,
+                    overflowY: "auto",
+                  }}
+                >
+                  <div
+                    onMouseDown={() => { setSelectedApartment(""); setAptSearch(""); setAptDropdownOpen(false); }}
+                    style={{ padding: "10px 16px", cursor: "pointer", fontWeight: 700, color: "#6b7280", fontSize: "0.9rem" }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "#f0f9ff"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                  >
+                    🏠 All Apartments
+                  </div>
+                  {apartments
+                    .filter((a) => a.name.toLowerCase().includes(aptSearch.toLowerCase()))
+                    .map((a) => (
+                      <div
+                        key={a.id}
+                        onMouseDown={() => {
+                          setSelectedApartment(a.id);
+                          setAptSearch(a.name);
+                          setAptDropdownOpen(false);
+                        }}
+                        style={{
+                          padding: "10px 16px",
+                          cursor: "pointer",
+                          fontWeight: selectedApartment === a.id ? 700 : 500,
+                          color: "#0c4a6e",
+                          fontSize: "0.9rem",
+                          background: selectedApartment === a.id ? "#e0f2fe" : "transparent",
+                        }}
+                        onMouseEnter={(e) => { if (selectedApartment !== a.id) e.currentTarget.style.background = "#f0f9ff"; }}
+                        onMouseLeave={(e) => { if (selectedApartment !== a.id) e.currentTarget.style.background = "transparent"; }}
+                      >
+                        {a.name}
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+
+            <select
+              value={hostGuestFilter}
+              onChange={(e) => setHostGuestFilter(e.target.value)}
+              style={{
+                padding: "10px 16px",
+                borderRadius: 12,
+                border: "2px solid #6ee7b7",
+                background: "linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)",
+                color: "#065f46",
+                fontWeight: 700,
+                fontSize: "0.95rem",
+                fontFamily: "Inter, sans-serif",
+                cursor: "pointer",
+              }}
+            >
+              <option value="">🎭 All Roles</option>
+              <option value="host">Host</option>
+              <option value="guest">Guest</option>
+            </select>
+
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              style={{
+                padding: "10px 16px",
+                borderRadius: 12,
+                border: "2px solid #c4b5fd",
+                background: "linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%)",
+                color: "#5b21b6",
+                fontWeight: 700,
+                fontSize: "0.95rem",
+                fontFamily: "Inter, sans-serif",
+                cursor: "pointer",
+              }}
+            >
+              <option value="date_desc">📅 Date ↓</option>
+              <option value="date_asc">📅 Date ↑</option>
+              <option value="title_asc">🔤 Title A→Z</option>
+              <option value="title_desc">🔤 Title Z→A</option>
+            </select>
+          </div>
       </div>
 
       {/* Invitations Section - only in upcoming mode */}
@@ -580,6 +608,7 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
 
       {/* Table */}
       <div
+        className="meals-list-table"
         style={{
           overflowX: "auto",
           background: "#fef9c3",
@@ -595,9 +624,10 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
                   key={header}
                   style={{
                     padding: "12px 8px",
-                    textAlign: "left",
+                    textAlign: "center",
                     color: "#78350f",
-                    fontWeight: 600,
+                    fontWeight: 700,
+                    fontFamily: "Inter, sans-serif",
                   }}
                 >
                   {header}
@@ -611,7 +641,7 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
               <tr>
                 <td
                   colSpan={4}
-                  style={{ padding: 12, textAlign: "center", color: "#78350f" }}
+                  style={{ padding: 12, textAlign: "center", color: "#78350f", fontWeight: 700, fontFamily: "Inter, sans-serif" }}
                 >
                   No meals match the filters.
                 </td>
@@ -619,7 +649,7 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
             ) : (
               acceptedMeals.map((m) => {
                 const apt = apartments.find((a) => a.id === m.host_apartment_id);
-                const aptDisplay = apt ? formatApartmentName(apt) : "—";
+                const aptName = apt?.name ?? "—";
                 const role = getUserRole(m, myId);
                 const roleDisplay = role === "host" ? "Host" : role === "guest" ? "Guest" : "—";
 
@@ -635,13 +665,23 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
                     onMouseEnter={(e) => (e.currentTarget.style.background = "#fef3c7")}
                     onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                   >
-                    <td style={{ padding: 12, maxWidth: 200 }}>
-                      <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.title}</div>
+                    <td style={{ padding: 12, fontWeight: 700, fontFamily: "Inter, sans-serif" }}>
+                      {m.title}
                     </td>
-                    <td style={{ padding: 12 }}>{new Date(m.datetime).toLocaleString()}</td>
-                    <td style={{ padding: 12 }}>{aptDisplay}</td>
+                    <td style={{ padding: 12, fontWeight: 700, fontFamily: "Inter, sans-serif" }}>{new Date(m.datetime).toLocaleString()}</td>
+                    <td style={{ padding: 12, fontWeight: 700, fontFamily: "Inter, sans-serif" }}>
+                      {apt && onViewApartment ? (
+                        <span
+                          onClick={(e) => { e.stopPropagation(); onViewApartment(apt.id); }}
+                          style={{ cursor: "pointer", color: "#4f46e5", textDecoration: "underline", textDecorationStyle: "dotted" }}
+                        >
+                          {aptName}
+                        </span>
+                      ) : aptName}
+                    </td>
                     <td style={{ padding: 12 }}>
                       <span
+                        className="role-pill"
                         style={{
                           padding: "2px 10px",
                           borderRadius: 20,
