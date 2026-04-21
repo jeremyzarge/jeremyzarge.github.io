@@ -7,7 +7,7 @@ import { rtdb } from "./firebaseClient";
 const VAPID_PUBLIC_KEY = "BB8_4h8I3GIIXoNjUZFH6dHay0CyG2Zxd1wi7oYhESunWNooQfZtaQ6-Ixz-cXFeaG09ISfn-e-8N9gQ24zPLFU";
 
 // After deploying the Cloudflare Worker, paste its URL here:
-const WORKER_URL = "http://localhost:8787";
+const WORKER_URL = "https://vitemeals.workers.dev";
 
 // Pick any random string — paste the same value into the Worker's
 // NOTIFICATION_SECRET environment variable via:  npx wrangler secret put NOTIFICATION_SECRET
