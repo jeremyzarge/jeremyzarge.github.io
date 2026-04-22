@@ -288,7 +288,7 @@ function IncomingRequests({
       body: `${myName} accepted your friend request`,
       tag: `friend-accepted-${currentUserId}`,
       data: { tab: "friends" },
-    });
+    }, "friend_requests");
   }
 
   async function handleReject(senderId: string) {

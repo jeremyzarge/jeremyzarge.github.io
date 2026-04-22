@@ -14,6 +14,19 @@ const WORKER_URL = "https://vitemeals-notifications.vitemeals.workers.dev";
 const NOTIFICATION_SECRET = "b3c9cfae63e6dc6a1922c342dd90964d";
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Notification preference keys stored at users/{uid}/notification_prefs/{key}.
+ * Default is true (enabled) when the key is absent.
+ */
+export type NotifPrefKey =
+  | "friend_requests"   // friend request received / accepted
+  | "meal_messages"     // new message in a meal
+  | "meal_updates"      // time, location, or instructions changed
+  | "meal_food"         // food assigned/removed, role changed
+  | "meal_deleted"      // meal was deleted
+  | "host_invites"      // (hosts) invite accepted / declined
+  | "host_guest_food";  // (hosts) guest updated their own food
+
 function urlBase64ToUint8Array(b64: string): Uint8Array {
   const padding = "=".repeat((4 - (b64.length % 4)) % 4);
   const base64 = (b64 + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -29,11 +42,9 @@ export async function initPushNotifications(userId: string): Promise<void> {
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
   try {
     const permission = await Notification.requestPermission();
-    console.log("[push] permission:", permission);
     if (permission !== "granted") return;
 
     const registration = await navigator.serviceWorker.ready;
-    console.log("[push] SW ready:", registration.active?.scriptURL);
     let sub = await registration.pushManager.getSubscription();
     if (!sub) {
       sub = await registration.pushManager.subscribe({
@@ -41,7 +52,6 @@ export async function initPushNotifications(userId: string): Promise<void> {
         applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as BufferSource,
       });
     }
-    console.log("[push] subscription:", sub.endpoint);
 
     const json = sub.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } };
     await set(ref(rtdb, `users/${userId}/push_subscriptions/${subKey(json.endpoint)}`), {
@@ -49,7 +59,6 @@ export async function initPushNotifications(userId: string): Promise<void> {
       keys: json.keys,
       updatedAt: Date.now(),
     });
-    console.log("[push] subscription saved to RTDB for user", userId);
   } catch (err) {
     console.warn("[push] setup failed:", err);
   }
@@ -72,20 +81,33 @@ export async function removePushSubscription(userId: string): Promise<void> {
 /** Send a push notification to one or more users. Fire-and-forget — never throws. */
 export async function notifyUsers(
   recipientIds: string[],
-  notification: { title: string; body: string; tag?: string; data?: Record<string, string> }
+  notification: { title: string; body: string; tag?: string; data?: Record<string, string> },
+  prefKey?: NotifPrefKey
 ): Promise<void> {
-  console.log("[push] notifyUsers called, recipients:", recipientIds, "notification:", notification);
   if (recipientIds.length === 0) return;
   try {
+    // Filter by notification preference (default enabled when key is absent)
+    let filteredIds = recipientIds;
+    if (prefKey) {
+      const results = await Promise.all(
+        recipientIds.map(async (uid) => {
+          const snap = await get(ref(rtdb, `users/${uid}/notification_prefs/${prefKey}`));
+          const enabled = !snap.exists() || snap.val() !== false;
+          return { uid, enabled };
+        })
+      );
+      filteredIds = results.filter((r) => r.enabled).map((r) => r.uid);
+    }
+
+    if (filteredIds.length === 0) return;
+
     const subscriptions: unknown[] = [];
     await Promise.all(
-      recipientIds.map(async (uid) => {
+      filteredIds.map(async (uid) => {
         const snap = await get(ref(rtdb, `users/${uid}/push_subscriptions`));
-        console.log("[push] subscriptions for", uid, ":", snap.exists() ? snap.val() : "none");
         if (snap.exists()) Object.values(snap.val()).forEach((s) => subscriptions.push(s));
       })
     );
-    console.log("[push] total subscriptions found:", subscriptions.length);
     if (subscriptions.length === 0) return;
 
     await fetch(WORKER_URL, {
@@ -97,6 +119,6 @@ export async function notifyUsers(
       body: JSON.stringify({ subscriptions, notification }),
     });
   } catch (err) {
-    console.warn("notifyUsers failed:", err);
+    console.warn("[push] notifyUsers failed:", err);
   }
 }

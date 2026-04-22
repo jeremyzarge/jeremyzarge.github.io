@@ -19,6 +19,7 @@ import ApartmentProfileView from "./components/ApartmentProfileView";
 import type { UserProfile, Apartment, UserWithId, UserRelationship, CanBring, Allergies } from "./types";
 import { claimMealInvite } from "./inviteService";
 import { initPushNotifications, removePushSubscription, notifyUsers } from "./notifications";
+import NotificationPrefsModal from "./components/NotificationPrefsModal";
 
 const { auth } = firebaseClient;
 
@@ -61,6 +62,7 @@ export default function App() {
   const [viewingInvitedMealId, setViewingInvitedMealId] = useState<string | null>(null);
   const [viewingApartmentId, setViewingApartmentId] = useState<string | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [showNotifPrefs, setShowNotifPrefs] = useState(false);
 
   // Cache for users and apartments (loaded once when profile exists)
   const [users, setUsers] = useState<UserWithId[]>([]);
@@ -442,6 +444,24 @@ export default function App() {
           ✏️ Edit Profile
         </button>
         <button
+          onClick={() => setShowNotifPrefs(true)}
+          style={{
+            padding: "12px 20px",
+            borderRadius: 50,
+            border: "none",
+            background: "rgba(255,255,255,0.2)",
+            color: "white",
+            fontWeight: 700,
+            fontFamily: "Inter, sans-serif",
+            cursor: "pointer",
+            fontSize: "1rem",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+            backdropFilter: "blur(8px)",
+          }}
+        >
+          🔔 Notifications
+        </button>
+        <button
           onClick={() => { if (myId) removePushSubscription(myId); signOut(auth); }}
           style={{
             padding: "12px 20px",
@@ -558,6 +578,25 @@ export default function App() {
             }}
           >
             ✏️ Edit Profile
+          </button>
+          <button
+            onClick={() => setShowNotifPrefs(true)}
+            style={{
+              padding: "14px 32px",
+              borderRadius: 50,
+              border: "none",
+              background: "white",
+              color: "#667eea",
+              fontWeight: 700,
+              fontFamily: "Inter, sans-serif",
+              fontSize: "1rem",
+              cursor: "pointer",
+              boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
+              width: "100%",
+              maxWidth: 280,
+            }}
+          >
+            🔔 Notification Settings
           </button>
           <div style={{ flex: 1 }} />
           <button
@@ -705,16 +744,38 @@ export default function App() {
                 body: `${myName} accepted the invite to "${mealData.title ?? "your meal"}"`,
                 tag: `meal-accepted-${viewingInvitedMealId}-${myId}`,
                 data: { tab: "upcoming" },
-              });
+              }, "host_invites");
             }
             setViewingInvitedMealId(null);
           }}
           onReject={async () => {
             if (!window.confirm("Are you sure you want to reject this invitation?")) return;
+            // Notify hosts before removing
+            const mealSnap = await get(ref(rtdb, `meal_events/${viewingInvitedMealId}`));
+            if (mealSnap.exists()) {
+              const mealData = mealSnap.val();
+              const hostIds = Object.entries(mealData.participants ?? {})
+                .filter(([id, p]: [string, any]) => p.role === "host" && id !== myId)
+                .map(([id]) => id);
+              const myName = profile ? `${profile.first_name} ${profile.last_name}`.trim() : "Someone";
+              notifyUsers(hostIds, {
+                title: "Invitation declined",
+                body: `${myName} declined the invite to "${mealData.title ?? "your meal"}"`,
+                tag: `meal-rejected-${viewingInvitedMealId}-${myId}`,
+                data: { tab: "upcoming" },
+              }, "host_invites");
+            }
             await remove(ref(rtdb, `meal_events/${viewingInvitedMealId}/participants/${myId}`));
             setViewingInvitedMealId(null);
           }}
           onViewProfile={(id: string) => setViewingProfileUserId(id)}
+        />
+      )}
+
+      {showNotifPrefs && myId && (
+        <NotificationPrefsModal
+          userId={myId}
+          onClose={() => setShowNotifPrefs(false)}
         />
       )}
 

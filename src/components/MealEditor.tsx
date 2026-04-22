@@ -663,7 +663,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           body: `${myName} invited you to "${meal.title}"`,
           tag: `meal-invite-new`,
           data: { tab: "upcoming" },
-        });
+        }, "meal_food");
         if (onCreated) onCreated();
         if (onClose) onClose();
       } else {
@@ -678,7 +678,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           body: `${myName} invited you to "${meal.title}"`,
           tag: `meal-invite-${mealId}`,
           data: { tab: "upcoming" },
-        });
+        }, "meal_food");
 
         // Removed participants
         const removedIds = Object.keys(prevParticipants).filter((id) => !newParticipants[id] && id !== currentUserId);
@@ -687,31 +687,95 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           body: `You were removed from "${meal.title}"`,
           tag: `meal-removed-${mealId}`,
           data: { tab: "upcoming" },
-        });
+        }, "meal_food");
 
-        // Datetime change — notify all other participants
+        // Datetime, location, or instructions changed — notify all other accepted participants
+        const otherAcceptedIds = Object.entries(newParticipants)
+          .filter(([id, p]) => id !== currentUserId && p.accepted === true)
+          .map(([id]) => id);
+
         if (originalMeal?.datetime && meal.datetime !== originalMeal.datetime) {
-          const otherIds = Object.keys(newParticipants).filter((id) => id !== currentUserId);
-          notifyUsers(otherIds, {
+          notifyUsers(otherAcceptedIds, {
             title: "Meal time updated 🕐",
             body: `The time for "${meal.title}" has changed`,
             tag: `meal-time-${mealId}`,
             data: { tab: "upcoming" },
-          });
+          }, "meal_updates");
         }
 
-        // Food assignment changed by host for a specific participant
+        if (originalMeal && meal.location !== originalMeal.location) {
+          notifyUsers(otherAcceptedIds, {
+            title: "Meal location updated 📍",
+            body: `The location for "${meal.title}" has changed`,
+            tag: `meal-location-${mealId}`,
+            data: { tab: "upcoming" },
+          }, "meal_updates");
+        }
+
+        if (originalMeal && meal.host_apartment_id !== originalMeal.host_apartment_id) {
+          notifyUsers(otherAcceptedIds, {
+            title: "Meal location updated 📍",
+            body: `The host apartment for "${meal.title}" has changed`,
+            tag: `meal-apt-${mealId}`,
+            data: { tab: "upcoming" },
+          }, "meal_updates");
+        }
+
+        if (originalMeal && meal.instructions !== originalMeal.instructions && meal.instructions.trim()) {
+          notifyUsers(otherAcceptedIds, {
+            title: "Meal instructions updated",
+            body: `Instructions for "${meal.title}" were updated`,
+            tag: `meal-instructions-${mealId}`,
+            data: { tab: "upcoming" },
+          }, "meal_updates");
+        }
+
+        // Per-participant changes by host
         if (isHost) {
           for (const [uid, p] of Object.entries(newParticipants)) {
             if (uid === currentUserId) continue;
             const prev = prevParticipants[uid];
-            if (prev && p.food !== prev.food && p.food !== "none") {
+            if (!prev) continue;
+
+            // Role changed
+            if (p.role !== prev.role) {
               notifyUsers([uid], {
-                title: "Food assignment updated",
-                body: `Your food for "${meal.title}" was changed to ${p.food}`,
-                tag: `meal-food-${mealId}-${uid}`,
+                title: "Your role was changed",
+                body: `You are now a ${p.role} for "${meal.title}"`,
+                tag: `meal-role-${mealId}-${uid}`,
                 data: { tab: "upcoming" },
-              });
+              }, "meal_food");
+            }
+
+            // Food assignment changed
+            if (p.food !== prev.food) {
+              if (p.food === "none") {
+                notifyUsers([uid], {
+                  title: "Food assignment removed",
+                  body: `Your food assignment for "${meal.title}" was removed`,
+                  tag: `meal-food-${mealId}-${uid}`,
+                  data: { tab: "upcoming" },
+                }, "meal_food");
+              } else {
+                notifyUsers([uid], {
+                  title: "Food assignment updated",
+                  body: `Your food for "${meal.title}" was set to ${p.food}`,
+                  tag: `meal-food-${mealId}-${uid}`,
+                  data: { tab: "upcoming" },
+                }, "meal_food");
+              }
+            }
+
+            // Additional item removed
+            const prevItemCount = (prev.additional_items || []).length;
+            const newItemCount = (p.additional_items || []).length;
+            if (newItemCount < prevItemCount) {
+              notifyUsers([uid], {
+                title: "Food item removed",
+                body: `A food item was removed from your assignment for "${meal.title}"`,
+                tag: `meal-item-removed-${mealId}-${uid}`,
+                data: { tab: "upcoming" },
+              }, "meal_food");
             }
           }
         }
@@ -747,7 +811,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         body: `${myName} updated their food for "${meal.title}"`,
         tag: `meal-participant-update-${mealId}-${currentUserId}`,
         data: { tab: "upcoming" },
-      });
+      }, "host_guest_food");
     } catch (err: any) {
       console.error(err);
       alert("Failed to save: " + err.message);
@@ -760,8 +824,17 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
    * Delete meal from database
    */
   const handleDelete = async () => {
-    if (!window.confirm("Delete this meal?")) return;
+    if (!meal || !window.confirm("Delete this meal?")) return;
     try {
+      // Notify all other participants before deleting
+      const otherIds = Object.keys(meal.participants).filter((id) => id !== currentUserId);
+      notifyUsers(otherIds, {
+        title: "Meal cancelled",
+        body: `"${meal.title}" has been cancelled`,
+        tag: `meal-deleted-${mealId}`,
+        data: { tab: "upcoming" },
+      }, "meal_deleted");
+
       await remove(ref(rtdb, `meal_events/${mealId}`));
       alert("Meal deleted!");
       if (onClose) onClose();
@@ -2057,7 +2130,7 @@ function MessageInput({
         body: `${senderName}: ${text.trim().slice(0, 80)}`,
         tag: `meal-message-${mealId}`,
         data: { tab: "upcoming" },
-      });
+      }, "meal_messages");
 
       setText("");
       onMessageSent();

@@ -369,7 +369,7 @@ export default function UserProfileView({
                     body: `${myName} sent you a friend request`,
                     tag: `friend-request-${currentUserId}`,
                     data: { tab: "friends" },
-                  });
+                  }, "friend_requests");
                 })}
               />
             )}
