@@ -6,6 +6,7 @@ import type { Apartment, CanBring, Allergies } from "./types";
 interface ProfileSetupProps {
   user: User;
   onComplete: (profileData: ProfileData) => Promise<void>;
+  onCancel: () => void;
 }
 
 interface ProfileData {
@@ -20,7 +21,7 @@ interface ProfileData {
 /**
  * Profile setup form for new users
  */
-export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
+export default function ProfileSetup({ user, onComplete, onCancel }: ProfileSetupProps) {
   // Basic info
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -174,21 +175,40 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
           backgroundClip: "padding-box, border-box",
         }}
       >
-        <h2
-          style={{
-            margin: 0,
-            fontWeight: 900,
-            background: "linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)",
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-            backgroundClip: "text",
-            textAlign: "center",
-            fontSize: "2.2rem",
-            letterSpacing: "-0.5px",
-          }}
-        >
-          Create Your Profile
-        </h2>
+        <div style={{ position: "relative", textAlign: "center", paddingRight: 32 }}>
+          <h2
+            style={{
+              margin: 0,
+              fontWeight: 900,
+              background: "linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+              fontSize: "2.2rem",
+              letterSpacing: "-0.5px",
+            }}
+          >
+            Create Your Profile
+          </h2>
+          <button
+            type="button"
+            onClick={onCancel}
+            style={{
+              position: "absolute",
+              top: 0,
+              right: 0,
+              background: "none",
+              border: "none",
+              fontSize: "1.5rem",
+              cursor: "pointer",
+              color: "#9ca3af",
+              padding: 4,
+              lineHeight: 1,
+            }}
+          >
+            ✕
+          </button>
+        </div>
         <p
           style={{
             marginTop: -4,

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { ref, set } from "firebase/database";
 import { fetchAllApartments, createDefaultAllergies, createDefaultCanBring } from "../utils";
-import { createNumericApartmentId } from "../firebaseClient";
+import { createNumericApartmentId, rtdb } from "../firebaseClient";
 import { createOrUpdateUserNumeric } from "../index";
 import type { Apartment, CanBring, Allergies, UserProfile } from "../types";
 
@@ -30,6 +31,10 @@ export default function ProfileEditor({
   const [newApartment, setNewApartment] = useState<{ name: string; address: string } | null>(null);
   const [aptSearch, setAptSearch] = useState("");
   const [aptDropdownOpen, setAptDropdownOpen] = useState(false);
+  const [editingCurrentApt, setEditingCurrentApt] = useState(false);
+  const [editAptName, setEditAptName] = useState("");
+  const [editAptAddress, setEditAptAddress] = useState("");
+  const [aptSaving, setAptSaving] = useState(false);
   const aptComboRef = useRef<HTMLDivElement>(null);
 
   // Foods user can bring
@@ -231,6 +236,71 @@ export default function ProfileEditor({
         />
 
         {selectedApartmentId && !newApartment ? (
+          editingCurrentApt ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "14px 16px", borderRadius: 12, border: "2px solid #f093fb", background: "#fdf2f8" }}>
+              <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "#764ba2", marginBottom: 2 }}>Edit Apartment</div>
+              <input
+                value={editAptName}
+                onChange={(e) => setEditAptName(e.target.value)}
+                placeholder="Apartment name"
+                style={inputStyle}
+                autoFocus
+              />
+              <input
+                value={editAptAddress}
+                onChange={(e) => setEditAptAddress(e.target.value)}
+                placeholder="Address"
+                style={inputStyle}
+              />
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setEditingCurrentApt(false)}
+                  style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "2px solid #e5e7eb", background: "white", color: "#6b7280", fontWeight: 700, cursor: "pointer", fontSize: "0.9rem" }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={!editAptName.trim() || aptSaving}
+                  onClick={async () => {
+                    if (!editAptName.trim()) return;
+                    setAptSaving(true);
+                    try {
+                      await set(ref(rtdb, `apartments/${selectedApartmentId}`), {
+                        name: editAptName.trim(),
+                        address: editAptAddress.trim(),
+                      });
+                      setApartments((prev) =>
+                        prev.map((a) =>
+                          a.id === selectedApartmentId
+                            ? { ...a, name: editAptName.trim(), address: editAptAddress.trim() }
+                            : a
+                        )
+                      );
+                      setAptSearch(editAptName.trim());
+                      setEditingCurrentApt(false);
+                    } finally {
+                      setAptSaving(false);
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "10px 0",
+                    borderRadius: 10,
+                    border: "none",
+                    background: !editAptName.trim() || aptSaving ? "#d1d5db" : "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
+                    color: "white",
+                    fontWeight: 700,
+                    cursor: !editAptName.trim() || aptSaving ? "not-allowed" : "pointer",
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  {aptSaving ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </div>
+          ) : (
           <div style={{
             display: "flex",
             alignItems: "center",
@@ -240,7 +310,7 @@ export default function ProfileEditor({
             border: "2px solid #e5e7eb",
             background: "#f9fafb",
           }}>
-            <span>
+            <span style={{ minWidth: 0, flex: 1, overflow: "hidden" }}>
               <span style={{ fontWeight: 700, color: "#111827" }}>
                 {apartments.find((a) => a.id === selectedApartmentId)?.name ?? aptSearch}
               </span>
@@ -250,14 +320,30 @@ export default function ProfileEditor({
                 </span>
               )}
             </span>
-            <button
-              type="button"
-              onClick={() => { setSelectedApartmentId(""); setAptSearch(""); setEditingCurrentApt(false); }}
-              style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af", fontSize: "1.1rem", lineHeight: 1, padding: "0 0 0 12px", fontWeight: 700 }}
-            >
-              ✕
-            </button>
+            <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  const apt = apartments.find((a) => a.id === selectedApartmentId);
+                  setEditAptName(apt?.name ?? "");
+                  setEditAptAddress(apt?.address ?? "");
+                  setEditingCurrentApt(true);
+                }}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "#764ba2", fontSize: "1rem", lineHeight: 1, padding: "0 6px", fontWeight: 700 }}
+                title="Edit apartment"
+              >
+                ✏️
+              </button>
+              <button
+                type="button"
+                onClick={() => { setSelectedApartmentId(""); setAptSearch(""); setEditingCurrentApt(false); }}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af", fontSize: "1.1rem", lineHeight: 1, padding: "0 0 0 4px", fontWeight: 700 }}
+              >
+                ✕
+              </button>
+            </div>
           </div>
+          )
         ) : !newApartment && (
           <div ref={aptComboRef} style={{ position: "relative" }}>
             <input

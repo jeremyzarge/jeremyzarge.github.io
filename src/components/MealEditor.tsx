@@ -898,7 +898,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
   }, [participantsWithInfo]);
 
   if (loading || !meal) {
-    return <div style={{ padding: 20 }}>Loading meal editor…</div>;
+    return null;
   }
 
   return (
@@ -1472,14 +1472,14 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                               )}
                             </td>
                           )}
-                          <td style={{ padding: "12px", fontWeight: 600, color: "#374151" }}>
+                          <td style={{ padding: "12px", fontWeight: 600, color: "#374151", textAlign: "center" }}>
                             {onViewProfile ? (
                               <ClickableUserName
                                 userId={userId}
                                 firstName={user.first_name}
                                 lastName={user.last_name}
                                 onClick={onViewProfile}
-                                style={{ whiteSpace: "normal", overflow: "visible", textOverflow: "unset" }}
+                                style={{ whiteSpace: "normal", overflow: "visible", textOverflow: "unset", textAlign: "center" }}
                               />
                             ) : (
                               <>{user.first_name} {user.last_name}</>

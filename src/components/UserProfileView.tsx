@@ -43,6 +43,42 @@ const allergyLabels: Record<string, string> = {
   nut_allergy: "Nut Allergy",
 };
 
+function getUpcomingShabbatWindows() {
+  const now = new Date();
+  const dayOfWeek = now.getDay();
+  // How many days since last Friday (0 if today is Friday)
+  const daysFromFriday = (dayOfWeek - 5 + 7) % 7;
+
+  const thisFriday = new Date(now);
+  thisFriday.setDate(now.getDate() - daysFromFriday);
+  thisFriday.setHours(0, 0, 0, 0);
+
+  // Dinner: Friday 5 pm → Saturday midnight
+  const dinnerStart = new Date(thisFriday);
+  dinnerStart.setHours(17, 0, 0, 0);
+  const dinnerEnd = new Date(thisFriday);
+  dinnerEnd.setDate(thisFriday.getDate() + 1);
+  dinnerEnd.setHours(0, 0, 0, 0);
+
+  // Lunch: Saturday noon → 3 pm
+  const lunchStart = new Date(thisFriday);
+  lunchStart.setDate(thisFriday.getDate() + 1);
+  lunchStart.setHours(12, 0, 0, 0);
+  const lunchEnd = new Date(thisFriday);
+  lunchEnd.setDate(thisFriday.getDate() + 1);
+  lunchEnd.setHours(15, 0, 0, 0);
+
+  // If this week's Shabbat is fully over, advance to next week
+  if (now > lunchEnd) {
+    dinnerStart.setDate(dinnerStart.getDate() + 7);
+    dinnerEnd.setDate(dinnerEnd.getDate() + 7);
+    lunchStart.setDate(lunchStart.getDate() + 7);
+    lunchEnd.setDate(lunchEnd.getDate() + 7);
+  }
+
+  return { dinnerStart, dinnerEnd, lunchStart, lunchEnd };
+}
+
 export default function UserProfileView({
   userId,
   currentUserId,
@@ -59,6 +95,8 @@ export default function UserProfileView({
   const [actionLoading, setActionLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pastMealsShown, setPastMealsShown] = useState(5);
+  const [friendAttendsDinner, setFriendAttendsDinner] = useState(false);
+  const [friendAttendsLunch, setFriendAttendsLunch] = useState(false);
 
   const user = allUsers.find((u) => u.id === userId);
   const rel = relationships[userId];
@@ -89,6 +127,21 @@ export default function UserProfileView({
         }
         shared.sort((a, b) => new Date(b.datetime).getTime() - new Date(a.datetime).getTime());
         setCommonMeals(shared);
+
+        // Compute friend's upcoming Shabbat meal attendance
+        const { dinnerStart, dinnerEnd, lunchStart, lunchEnd } = getUpcomingShabbatWindows();
+        let attendsDinner = false;
+        let attendsLunch = false;
+        for (const [, meal] of Object.entries(allMeals)) {
+          const theirs = (meal.participants || {})[userId];
+          if (theirs?.accepted === true && meal.datetime) {
+            const dt = new Date(meal.datetime);
+            if (dt >= dinnerStart && dt < dinnerEnd) attendsDinner = true;
+            if (dt >= lunchStart && dt < lunchEnd) attendsLunch = true;
+          }
+        }
+        setFriendAttendsDinner(attendsDinner);
+        setFriendAttendsLunch(attendsLunch);
       }
 
       setLoading(false);
@@ -174,7 +227,7 @@ export default function UserProfileView({
         ) : <>
 
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ position: "relative", textAlign: "center", paddingRight: 32 }}>
           <h2
             style={{
               margin: 0,
@@ -185,6 +238,7 @@ export default function UserProfileView({
               backgroundClip: "text",
               fontSize: "1.8rem",
               letterSpacing: "-0.5px",
+              wordBreak: "break-word",
             }}
           >
             {user.first_name} {user.last_name}
@@ -192,61 +246,79 @@ export default function UserProfileView({
           <button
             onClick={onClose}
             style={{
+              position: "absolute",
+              top: 0,
+              right: 0,
               background: "none",
               border: "none",
               fontSize: "1.5rem",
               cursor: "pointer",
               color: "#9ca3af",
               padding: 4,
+              lineHeight: 1,
             }}
           >
             ✕
           </button>
         </div>
 
-        {/* Apartment */}
-        <div style={{ color: "#6b7280", fontSize: "1.05rem" }}>
-          {apartment ? (
-            <>
-              {onViewApartment ? (
-                <ApartmentLink name={apartment.name} onClick={() => onViewApartment(apartment.id)} />
-              ) : (
-                <span style={{ fontWeight: 700, color: "#374151" }}>{apartment.name}</span>
-              )}
-              <span> — {apartment.address}</span>
-            </>
-          ) : (
-            <span>No apartment</span>
-          )}
-        </div>
+        {/* Shabbat meal status — only for friends */}
+        {status === "friend" && userId !== currentUserId && (
+          <div style={{ display: "flex", gap: 20, justifyContent: "center", marginTop: 4 }}>
+            <MealStatusIcon icon="🍽️" label="Dinner" attending={friendAttendsDinner} />
+            <MealStatusIcon icon="🥗" label="Lunch" attending={friendAttendsLunch} />
+          </div>
+        )}
 
-        {/* Can Bring */}
-        <div>
-          <SectionTitle text={`Can Bring (${activeCanBring.length})`} />
-          {activeCanBring.length > 0 ? (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {activeCanBring.map((label) => (
-                <Pill key={label} label={label} color="#10b981" />
-              ))}
-            </div>
-          ) : (
-            <p style={{ color: "#9ca3af", margin: 0, fontSize: "0.85rem" }}>None listed</p>
-          )}
-        </div>
+        {/* Apartment — only visible to friends and self */}
+        {(status === "friend" || userId === currentUserId) && (
+          <div style={{ color: "#6b7280", fontSize: "1.05rem" }}>
+            {apartment ? (
+              <>
+                {onViewApartment ? (
+                  <ApartmentLink name={apartment.name} onClick={() => onViewApartment(apartment.id)} />
+                ) : (
+                  <span style={{ fontWeight: 700, color: "#374151" }}>{apartment.name}</span>
+                )}
+                <span> — {apartment.address}</span>
+              </>
+            ) : (
+              <span>No apartment</span>
+            )}
+          </div>
+        )}
 
-        {/* Allergies */}
-        <div>
-          <SectionTitle text={`Allergies / Dietary (${allAllergies.length})`} />
-          {allAllergies.length > 0 ? (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {allAllergies.map((label) => (
-                <Pill key={label} label={label} color="#f59e0b" />
-              ))}
-            </div>
-          ) : (
-            <p style={{ color: "#9ca3af", margin: 0, fontSize: "0.85rem" }}>None listed</p>
-          )}
-        </div>
+        {/* Can Bring — friends and self only */}
+        {(status === "friend" || userId === currentUserId) && (
+          <div>
+            <SectionTitle text={`Can Bring (${activeCanBring.length})`} />
+            {activeCanBring.length > 0 ? (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {activeCanBring.map((label) => (
+                  <Pill key={label} label={label} color="#10b981" />
+                ))}
+              </div>
+            ) : (
+              <p style={{ color: "#9ca3af", margin: 0, fontSize: "0.85rem" }}>None listed</p>
+            )}
+          </div>
+        )}
+
+        {/* Allergies — friends and self only */}
+        {(status === "friend" || userId === currentUserId) && (
+          <div>
+            <SectionTitle text={`Allergies / Dietary (${allAllergies.length})`} />
+            {allAllergies.length > 0 ? (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {allAllergies.map((label) => (
+                  <Pill key={label} label={label} color="#f59e0b" />
+                ))}
+              </div>
+            ) : (
+              <p style={{ color: "#9ca3af", margin: 0, fontSize: "0.85rem" }}>None listed</p>
+            )}
+          </div>
+        )}
 
         {/* Mutual Friends */}
         {userId !== currentUserId && (
@@ -484,6 +556,32 @@ function ActionButton({
     >
       {loading ? "..." : label}
     </button>
+  );
+}
+
+function MealStatusIcon({ icon, label, attending }: { icon: string; label: string; attending: boolean }) {
+  const free = !attending;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
+      <div
+        style={{
+          width: 48,
+          height: 48,
+          borderRadius: "50%",
+          background: free ? "#dcfce7" : "#fee2e2",
+          border: `2.5px solid ${free ? "#16a34a" : "#dc2626"}`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: "1.5rem",
+        }}
+      >
+        {icon}
+      </div>
+      <span style={{ fontSize: "0.72rem", fontWeight: 700, color: free ? "#16a34a" : "#dc2626", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+        {label}
+      </span>
+    </div>
   );
 }
 

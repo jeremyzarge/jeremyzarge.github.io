@@ -135,9 +135,7 @@ export default function NotificationPrefsModal({ userId, onClose }: Notification
           Choose which notifications you'd like to receive.
         </p>
 
-        {loading ? (
-          <div style={{ padding: "20px 0", color: "#9ca3af", textAlign: "center" }}>Loading…</div>
-        ) : (
+        {loading ? null : (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {PREFS.map(({ key, label, description }) => (
               <div

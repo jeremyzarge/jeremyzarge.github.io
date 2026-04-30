@@ -20,6 +20,7 @@ import type { UserProfile, Apartment, UserWithId, UserRelationship, CanBring, Al
 import { claimMealInvite } from "./inviteService";
 import { initPushNotifications, removePushSubscription, notifyUsers } from "./notifications";
 import NotificationPrefsModal from "./components/NotificationPrefsModal";
+import AdminStats from "./components/AdminStats";
 
 const { auth } = firebaseClient;
 
@@ -63,6 +64,8 @@ export default function App() {
   const [viewingApartmentId, setViewingApartmentId] = useState<string | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [showNotifPrefs, setShowNotifPrefs] = useState(false);
+  const [showAdminStats, setShowAdminStats] = useState(false);
+  const isAdmin = authUser?.email === "jeremyzarge@gmail.com";
 
   // Cache for users and apartments (loaded once when profile exists)
   const [users, setUsers] = useState<UserWithId[]>([]);
@@ -391,7 +394,13 @@ export default function App() {
 
   // Show profile setup if user is authenticated but needs to create profile
   if (needsProfile && myId) {
-    return <ProfileSetup user={authUser} onComplete={handleProfileComplete} />;
+    return (
+      <ProfileSetup
+        user={authUser}
+        onComplete={handleProfileComplete}
+        onCancel={() => signOut(auth)}
+      />
+    );
   }
 
   // Show loading if we're still fetching profile data
@@ -461,6 +470,26 @@ export default function App() {
         >
           🔔 Notifications
         </button>
+        {isAdmin && (
+          <button
+            onClick={() => setShowAdminStats(true)}
+            style={{
+              padding: "12px 20px",
+              borderRadius: 50,
+              border: "none",
+              background: "rgba(255,255,255,0.2)",
+              color: "white",
+              fontWeight: 700,
+              fontFamily: "Inter, sans-serif",
+              cursor: "pointer",
+              fontSize: "1rem",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+              backdropFilter: "blur(8px)",
+            }}
+          >
+            📊 Admin
+          </button>
+        )}
         <button
           onClick={() => { if (myId) removePushSubscription(myId); signOut(auth); }}
           style={{
@@ -598,6 +627,27 @@ export default function App() {
           >
             🔔 Notification Settings
           </button>
+          {isAdmin && (
+            <button
+              onClick={() => setShowAdminStats(true)}
+              style={{
+                padding: "14px 32px",
+                borderRadius: 50,
+                border: "none",
+                background: "white",
+                color: "#764ba2",
+                fontWeight: 700,
+                fontFamily: "Inter, sans-serif",
+                fontSize: "1rem",
+                cursor: "pointer",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
+                width: "100%",
+                maxWidth: 280,
+              }}
+            >
+              📊 Admin Stats
+            </button>
+          )}
           <div style={{ flex: 1 }} />
           <button
             onClick={() => { if (myId) removePushSubscription(myId); signOut(auth); }}
@@ -777,6 +827,10 @@ export default function App() {
           userId={myId}
           onClose={() => setShowNotifPrefs(false)}
         />
+      )}
+
+      {showAdminStats && (
+        <AdminStats onClose={() => setShowAdminStats(false)} />
       )}
 
       {viewingApartmentId && (
