@@ -287,7 +287,7 @@ function IncomingRequests({
       title: "Friend request accepted!",
       body: `${myName} accepted your friend request`,
       tag: `friend-accepted-${currentUserId}`,
-      data: { tab: "friends" },
+      data: { tab: "friends", userId: currentUserId },
     }, "friend_requests");
   }
 

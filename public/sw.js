@@ -42,12 +42,19 @@ self.addEventListener("push", (e) => {
 
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
-  const target = e.notification.data?.url || "/";
+  const data = e.notification.data || {};
   e.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
       const existing = wins.find((w) => w.url.includes(self.location.origin));
-      if (existing) return existing.focus();
-      return clients.openWindow(target);
+      if (existing) {
+        // App is already open — focus it and post nav instructions
+        existing.focus();
+        existing.postMessage({ type: "notification-click", data });
+        return;
+      }
+      // Cold-start — encode nav data in URL so app reads it on mount
+      const param = btoa(JSON.stringify(data));
+      return clients.openWindow("/?notif=" + param);
     })
   );
 });

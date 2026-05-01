@@ -654,7 +654,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     setSaving(true);
     try {
       if (isCreateMode) {
-        await createMeal(meal);
+        const newMealId = await createMeal(meal);
         alert("Meal created!");
         // Notify all invited participants (everyone except the creator)
         const invitedIds = Object.keys(newParticipants).filter((id) => id !== currentUserId);
@@ -662,12 +662,13 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           title: "New meal invitation 🍽️",
           body: `${myName} invited you to "${meal.title}"`,
           tag: `meal-invite-new`,
-          data: { tab: "upcoming" },
+          data: { tab: "upcoming", mealId: newMealId, invited: "true" },
         }, "meal_food");
         if (onCreated) onCreated();
         if (onClose) onClose();
       } else {
-        await set(ref(rtdb, `meal_events/${mealId}`), meal);
+        const editId = mealId!;
+        await set(ref(rtdb, `meal_events/${editId}`), meal);
         setOriginalMeal(structuredClone(meal));
         alert("Meal updated!");
 
@@ -676,8 +677,8 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         notifyUsers(addedIds, {
           title: "New meal invitation 🍽️",
           body: `${myName} invited you to "${meal.title}"`,
-          tag: `meal-invite-${mealId}`,
-          data: { tab: "upcoming" },
+          tag: `meal-invite-${editId}`,
+          data: { tab: "upcoming", mealId: editId, invited: "true" },
         }, "meal_food");
 
         // Removed participants
@@ -685,7 +686,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         notifyUsers(removedIds, {
           title: "Removed from meal",
           body: `You were removed from "${meal.title}"`,
-          tag: `meal-removed-${mealId}`,
+          tag: `meal-removed-${editId}`,
           data: { tab: "upcoming" },
         }, "meal_food");
 
@@ -698,8 +699,8 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           notifyUsers(otherAcceptedIds, {
             title: "Meal time updated 🕐",
             body: `The time for "${meal.title}" has changed`,
-            tag: `meal-time-${mealId}`,
-            data: { tab: "upcoming" },
+            tag: `meal-time-${editId}`,
+            data: { tab: "upcoming", mealId: editId },
           }, "meal_updates");
         }
 
@@ -707,8 +708,8 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           notifyUsers(otherAcceptedIds, {
             title: "Meal location updated 📍",
             body: `The location for "${meal.title}" has changed`,
-            tag: `meal-location-${mealId}`,
-            data: { tab: "upcoming" },
+            tag: `meal-location-${editId}`,
+            data: { tab: "upcoming", mealId: editId },
           }, "meal_updates");
         }
 
@@ -716,8 +717,8 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           notifyUsers(otherAcceptedIds, {
             title: "Meal location updated 📍",
             body: `The host apartment for "${meal.title}" has changed`,
-            tag: `meal-apt-${mealId}`,
-            data: { tab: "upcoming" },
+            tag: `meal-apt-${editId}`,
+            data: { tab: "upcoming", mealId: editId },
           }, "meal_updates");
         }
 
@@ -725,8 +726,8 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           notifyUsers(otherAcceptedIds, {
             title: "Meal instructions updated",
             body: `Instructions for "${meal.title}" were updated`,
-            tag: `meal-instructions-${mealId}`,
-            data: { tab: "upcoming" },
+            tag: `meal-instructions-${editId}`,
+            data: { tab: "upcoming", mealId: editId },
           }, "meal_updates");
         }
 
@@ -742,8 +743,8 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
               notifyUsers([uid], {
                 title: "Your role was changed",
                 body: `You are now a ${p.role} for "${meal.title}"`,
-                tag: `meal-role-${mealId}-${uid}`,
-                data: { tab: "upcoming" },
+                tag: `meal-role-${editId}-${uid}`,
+                data: { tab: "upcoming", mealId: editId },
               }, "meal_food");
             }
 
@@ -753,15 +754,15 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                 notifyUsers([uid], {
                   title: "Food assignment removed",
                   body: `Your food assignment for "${meal.title}" was removed`,
-                  tag: `meal-food-${mealId}-${uid}`,
-                  data: { tab: "upcoming" },
+                  tag: `meal-food-${editId}-${uid}`,
+                  data: { tab: "upcoming", mealId: editId },
                 }, "meal_food");
               } else {
                 notifyUsers([uid], {
                   title: "Food assignment updated",
                   body: `Your food for "${meal.title}" was set to ${p.food}`,
-                  tag: `meal-food-${mealId}-${uid}`,
-                  data: { tab: "upcoming" },
+                  tag: `meal-food-${editId}-${uid}`,
+                  data: { tab: "upcoming", mealId: editId },
                 }, "meal_food");
               }
             }
@@ -773,8 +774,8 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
               notifyUsers([uid], {
                 title: "Food item removed",
                 body: `A food item was removed from your assignment for "${meal.title}"`,
-                tag: `meal-item-removed-${mealId}-${uid}`,
-                data: { tab: "upcoming" },
+                tag: `meal-item-removed-${editId}-${uid}`,
+                data: { tab: "upcoming", mealId: editId },
               }, "meal_food");
             }
           }
@@ -810,7 +811,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         title: "Participant updated",
         body: `${myName} updated their food for "${meal.title}"`,
         tag: `meal-participant-update-${mealId}-${currentUserId}`,
-        data: { tab: "upcoming" },
+        data: { tab: "upcoming", mealId: mealId ?? "" },
       }, "host_guest_food");
     } catch (err: any) {
       console.error(err);
@@ -2129,7 +2130,7 @@ function MessageInput({
         title: `New message in "${mealTitle}"`,
         body: `${senderName}: ${text.trim().slice(0, 80)}`,
         tag: `meal-message-${mealId}`,
-        data: { tab: "upcoming" },
+        data: { tab: "upcoming", mealId },
       }, "meal_messages");
 
       setText("");

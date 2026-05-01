@@ -41,12 +41,17 @@ export default function App() {
   const pendingInviteToken = useRef<string | null>(
     new URLSearchParams(window.location.search).get("invite")
   );
+  const pendingNotifData = useRef<Record<string, string> | null>((() => {
+    const param = new URLSearchParams(window.location.search).get("notif");
+    if (!param) return null;
+    try { return JSON.parse(atob(param)); } catch { return null; }
+  })());
   useEffect(() => {
-    if (pendingInviteToken.current) {
-      const url = new URL(window.location.href);
-      url.searchParams.delete("invite");
-      window.history.replaceState({}, "", url.toString());
-    }
+    const url = new URL(window.location.href);
+    let changed = false;
+    if (pendingInviteToken.current) { url.searchParams.delete("invite"); changed = true; }
+    if (pendingNotifData.current) { url.searchParams.delete("notif"); changed = true; }
+    if (changed) window.history.replaceState({}, "", url.toString());
   }, []);
 
   const [authUser, setAuthUser] = useState<User | null>(null);
@@ -75,6 +80,39 @@ export default function App() {
   const [relationships, setRelationships] = useState<Record<string, UserRelationship>>({});
   const friendIds = useMemo(() => getFriendIds(relationships), [relationships]);
 
+  /** Navigate to the right screen based on notification data */
+  function handleNotifNavigation(data: Record<string, string>) {
+    const tab = data.tab as typeof activeTab | undefined;
+    if (tab) setActiveTab(tab);
+    if (data.mealId) {
+      if (data.invited === "true") {
+        setViewingInvitedMealId(data.mealId);
+      } else {
+        setViewingMealId(data.mealId);
+      }
+    }
+    if (data.userId) setViewingProfileUserId(data.userId);
+  }
+
+  // Listen for postMessage from service worker (app already open case)
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type !== "notification-click") return;
+      handleNotifNavigation(event.data.data || {});
+    };
+    navigator.serviceWorker.addEventListener("message", handler);
+    return () => navigator.serviceWorker.removeEventListener("message", handler);
+  }, []);
+
+  // Apply cold-start notification nav once the profile is ready
+  useEffect(() => {
+    if (!profile || !myId || !pendingNotifData.current) return;
+    const data = pendingNotifData.current;
+    pendingNotifData.current = null;
+    handleNotifNavigation(data);
+  }, [profile, myId]);
+
   /**
    * Load user profile from database
    */
@@ -89,6 +127,12 @@ export default function App() {
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (u) => {
       setAuthInitialized(true);
+      // If user manually signed out, immediately sign out again to prevent
+      // Firebase/OS credential manager from re-authenticating silently
+      if (u && localStorage.getItem("manually_signed_out") === "1") {
+        await signOut(auth);
+        return;
+      }
       setAuthUser(u);
       if (!u) {
         setMyId(null);
@@ -365,7 +409,7 @@ export default function App() {
             Sign in to manage your Shabbat meals
           </p>
           <button
-            onClick={() => loginWithGoogle()}
+            onClick={() => { localStorage.removeItem("manually_signed_out"); loginWithGoogle(); }}
             style={{
               padding: "14px 28px",
               borderRadius: 12,
@@ -398,7 +442,7 @@ export default function App() {
       <ProfileSetup
         user={authUser}
         onComplete={handleProfileComplete}
-        onCancel={() => signOut(auth)}
+        onCancel={() => { localStorage.setItem("manually_signed_out", "1"); signOut(auth); }}
       />
     );
   }
@@ -491,7 +535,7 @@ export default function App() {
           </button>
         )}
         <button
-          onClick={() => { if (myId) removePushSubscription(myId); signOut(auth); }}
+          onClick={() => { if (myId) removePushSubscription(myId); localStorage.setItem("manually_signed_out", "1"); signOut(auth); }}
           style={{
             padding: "12px 20px",
             borderRadius: 50,
@@ -650,7 +694,7 @@ export default function App() {
           )}
           <div style={{ flex: 1 }} />
           <button
-            onClick={() => { if (myId) removePushSubscription(myId); signOut(auth); }}
+            onClick={() => { if (myId) removePushSubscription(myId); localStorage.setItem("manually_signed_out", "1"); signOut(auth); }}
             style={{
               padding: "14px 32px",
               borderRadius: 50,
@@ -793,7 +837,7 @@ export default function App() {
                 title: "Invitation accepted!",
                 body: `${myName} accepted the invite to "${mealData.title ?? "your meal"}"`,
                 tag: `meal-accepted-${viewingInvitedMealId}-${myId}`,
-                data: { tab: "upcoming" },
+                data: { tab: "upcoming", mealId: viewingInvitedMealId! },
               }, "host_invites");
             }
             setViewingInvitedMealId(null);
@@ -812,7 +856,7 @@ export default function App() {
                 title: "Invitation declined",
                 body: `${myName} declined the invite to "${mealData.title ?? "your meal"}"`,
                 tag: `meal-rejected-${viewingInvitedMealId}-${myId}`,
-                data: { tab: "upcoming" },
+                data: { tab: "upcoming", mealId: viewingInvitedMealId! },
               }, "host_invites");
             }
             await remove(ref(rtdb, `meal_events/${viewingInvitedMealId}/participants/${myId}`));

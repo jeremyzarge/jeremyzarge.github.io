@@ -122,7 +122,7 @@ export default function UserProfileView({
           const mine = participants[currentUserId];
           const theirs = participants[userId];
           if (mine?.accepted === true && theirs?.accepted === true) {
-            shared.push({ id: mealId, title: meal.title || "Untitled", datetime: meal.datetime });
+            shared.push({ id: mealId, title: meal.title || "Untitled", datetime: meal.datetime ?? "" });
           }
         }
         shared.sort((a, b) => new Date(b.datetime).getTime() - new Date(a.datetime).getTime());
@@ -170,6 +170,9 @@ export default function UserProfileView({
     : [];
 
   const mutualFriends = allUsers.filter((u) => mutualFriendIds.includes(u.id));
+
+  // Friends OR shared a meal together get full profile visibility (same rule as meal ledger)
+  const canSeeDetails = status === "friend" || userId === currentUserId || commonMeals.length > 0;
 
   async function handleAction(action: () => Promise<void>) {
     setActionLoading(true);
@@ -262,8 +265,8 @@ export default function UserProfileView({
           </button>
         </div>
 
-        {/* Shabbat meal status — only for friends */}
-        {status === "friend" && userId !== currentUserId && (
+        {/* Shabbat meal status — friends or meal-mates */}
+        {canSeeDetails && userId !== currentUserId && (
           <div style={{ display: "flex", gap: 20, justifyContent: "center", marginTop: 4 }}>
             <MealStatusIcon icon="🍽️" label="Dinner" attending={friendAttendsDinner} />
             <MealStatusIcon icon="🥗" label="Lunch" attending={friendAttendsLunch} />
@@ -271,7 +274,7 @@ export default function UserProfileView({
         )}
 
         {/* Apartment — only visible to friends and self */}
-        {(status === "friend" || userId === currentUserId) && (
+        {canSeeDetails && (
           <div style={{ color: "#6b7280", fontSize: "1.05rem" }}>
             {apartment ? (
               <>
@@ -289,7 +292,7 @@ export default function UserProfileView({
         )}
 
         {/* Can Bring — friends and self only */}
-        {(status === "friend" || userId === currentUserId) && (
+        {canSeeDetails && (
           <div>
             <SectionTitle text={`Can Bring (${activeCanBring.length})`} />
             {activeCanBring.length > 0 ? (
@@ -305,7 +308,7 @@ export default function UserProfileView({
         )}
 
         {/* Allergies — friends and self only */}
-        {(status === "friend" || userId === currentUserId) && (
+        {canSeeDetails && (
           <div>
             <SectionTitle text={`Allergies / Dietary (${allAllergies.length})`} />
             {allAllergies.length > 0 ? (
@@ -440,7 +443,7 @@ export default function UserProfileView({
                     title: "New friend request",
                     body: `${myName} sent you a friend request`,
                     tag: `friend-request-${currentUserId}`,
-                    data: { tab: "friends" },
+                    data: { tab: "friends", userId: currentUserId },
                   }, "friend_requests");
                 })}
               />
