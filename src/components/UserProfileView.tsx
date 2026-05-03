@@ -230,8 +230,8 @@ export default function UserProfileView({
         ) : <>
 
         {/* Header */}
-        <div style={{ position: "relative", textAlign: "center", paddingRight: 32 }}>
-          <h2
+        <div style={{ position: "relative", textAlign: "center", paddingLeft: 32, paddingRight: 32 }}>
+          <div
             style={{
               margin: 0,
               fontWeight: 900,
@@ -245,7 +245,7 @@ export default function UserProfileView({
             }}
           >
             {user.first_name} {user.last_name}
-          </h2>
+          </div>
           <button
             onClick={onClose}
             style={{
@@ -275,7 +275,7 @@ export default function UserProfileView({
 
         {/* Apartment — only visible to friends and self */}
         {canSeeDetails && (
-          <div style={{ color: "#6b7280", fontSize: "1.05rem" }}>
+          <div style={{ color: "#6b7280", fontSize: "1.05rem", textAlign: "center" }}>
             {apartment ? (
               <>
                 {onViewApartment ? (
@@ -596,6 +596,7 @@ function ApartmentLink({ name, onClick }: { name: string; onClick: () => void })
       onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      className="apartment-link"
       style={{
         background: "none",
         border: "none",

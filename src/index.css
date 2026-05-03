@@ -62,8 +62,7 @@ body {
   .mobile-hidden { display: none !important; }
 
   html {
-    padding-top: env(safe-area-inset-top);
-    background: #667eea;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
   }
 }
 
@@ -77,6 +76,9 @@ body {
 @media (max-width: 768px) {
   h2.page-title {
     font-size: 1.5rem !important;
+  }
+  .apartment-link {
+    font-size: inherit !important;
   }
 }
 @media (max-width: 480px) {
