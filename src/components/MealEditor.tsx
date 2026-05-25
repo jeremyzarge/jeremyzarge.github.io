@@ -6,6 +6,7 @@ import { rtdb } from "../firebaseClient";
 import { fetchAllUsers, fetchAllApartments, getAllergenCounts } from "../utils";
 import { generateMealInviteUrl } from "../inviteService";
 import { createMeal } from "../index";
+import { createOTEvent, requestOTNourishment, cancelOTEvent, cancelOTReservation } from "../onetableService";
 import type { User } from "firebase/auth";
 import type { Meal, MealParticipant, UserWithId, Apartment } from "../types";
 import ClickableUserName from "./ClickableUserName";
@@ -93,6 +94,21 @@ function getNameColor(userId: string): string {
 }
 
 
+/** Returns true if userId already has a different OT-synced meal on the same Friday. */
+async function hasOTMealThisWeek(userId: string, fridayDate: Date, excludeMealId?: string): Promise<boolean> {
+  const snap = await get(ref(rtdb, "meal_events"));
+  if (!snap.exists()) return false;
+  const fridayStr = fridayDate.toDateString();
+  for (const [id, data] of Object.entries(snap.val() as Record<string, any>)) {
+    if (id === excludeMealId) continue;
+    if (!data.onetable_event_id) continue;
+    if (!data.participants?.[userId]) continue;
+    if (!data.datetime) continue;
+    if (new Date(data.datetime).toDateString() === fridayStr) return true;
+  }
+  return false;
+}
+
 interface MealEditorProps {
   mealId?: string | null; // Optional - if not provided, create mode
   onClose?: () => void;
@@ -126,6 +142,45 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
   // For adding participants
   const [selectedUserId, setSelectedUserId] = useState("");
   const [copiedInvite, setCopiedInvite] = useState(false);
+
+  // OneTable sync
+  const [otSyncEnabled, setOtSyncEnabled] = useState(false);
+  const [otDescription, setOtDescription] = useState("");
+  const [otNourishment, setOtNourishment] = useState(false);
+  const [otToken, setOtToken] = useState<string | null>(null);
+  const [otLat, setOtLat] = useState(0);
+  const [otLng, setOtLng] = useState(0);
+  const [otGeocoding, setOtGeocoding] = useState(false);
+  const [otUnsyncing, setOtUnsyncing] = useState(false);
+  const [otSyncing, setOtSyncing] = useState(false);
+  const [otWeekConflict, setOtWeekConflict] = useState(false);
+
+  // OT date-based eligibility (computed from meal.datetime)
+  const otDateChecks = useMemo(() => {
+    const dt = meal?.datetime;
+    if (!dt) return { isFriday: false, canSync: false, canNourish: false };
+    const mealDate = new Date(dt);
+    const isFriday = mealDate.getDay() === 5;
+    const tuesday = new Date(mealDate);
+    tuesday.setDate(mealDate.getDate() - 3);
+    tuesday.setHours(23, 59, 59, 999);
+    const wednesday = new Date(mealDate);
+    wednesday.setDate(mealDate.getDate() - 2);
+    wednesday.setHours(23, 59, 59, 999);
+    const now = new Date();
+    return { isFriday, canSync: now <= tuesday, canNourish: now <= wednesday };
+  }, [meal?.datetime]);
+
+  // Check for OT week conflict whenever the date changes
+  useEffect(() => {
+    if (!currentUserId || !meal?.datetime || !otDateChecks.isFriday) {
+      setOtWeekConflict(false);
+      return;
+    }
+    hasOTMealThisWeek(currentUserId, new Date(meal.datetime), mealId ?? undefined)
+      .then(setOtWeekConflict)
+      .catch(() => setOtWeekConflict(false));
+  }, [meal?.datetime, currentUserId, mealId, otDateChecks.isFriday]);
 
   // Searchable combobox for participant selection
   const [userSearch, setUserSearch] = useState("");
@@ -197,6 +252,12 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         setMeal(defaultMeal);
         setOriginalMeal(structuredClone(defaultMeal)); // Track original state
 
+        // Load current user's OneTable token for the sync option
+        if (currentUserId) {
+          const otSnap = await get(ref(rtdb, `users/${currentUserId}/onetable_token`));
+          if (otSnap.exists()) setOtToken(otSnap.val());
+        }
+
         setLoading(false);
         return;
       }
@@ -263,10 +324,19 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         location: mealData.location || "",
         allowGuestsFoodSelection: mealData.allowGuestsFoodSelection || false,
         messages: mealData.messages || {},
+        onetable_event_id: mealData.onetable_event_id,
+        onetable_event_uuid: mealData.onetable_event_uuid,
+        onetable_nourishment: mealData.onetable_nourishment,
       };
 
       setMeal(normalizedMeal);
       setOriginalMeal(structuredClone(normalizedMeal)); // Track original state
+
+      // Load current user's OT token for sync option
+      if (currentUserId) {
+        const otSnap = await get(ref(rtdb, `users/${currentUserId}/onetable_token`));
+        if (otSnap.exists()) setOtToken(otSnap.val());
+      }
 
       // Load users, apartments, and foods
       const [usersData, apartmentsData] = await Promise.all([
@@ -313,6 +383,9 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         location: mealData.location || "",
         allowGuestsFoodSelection: mealData.allowGuestsFoodSelection || false,
         messages: mealData.messages || {},
+        onetable_event_id: mealData.onetable_event_id,
+        onetable_event_uuid: mealData.onetable_event_uuid,
+        onetable_nourishment: mealData.onetable_nourishment,
       };
 
       setMeal(normalizedMeal);
@@ -339,6 +412,32 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
       setTimeout(() => jumpToBottom(), 50);
     }
   }, [activeTab, jumpToBottom]);
+
+  // Auto-geocode the meal address whenever OT sync is on and the apartment/location changes
+  useEffect(() => {
+    if (!otSyncEnabled || !meal) return;
+    const address = meal.location?.trim() ||
+      apartments.find((a) => a.id === meal.host_apartment_id)?.address?.trim();
+    if (!address) return;
+    setOtLat(0);
+    setOtLng(0);
+    setOtGeocoding(true);
+    // NYC GeoSearch: free, no API key, excellent NYC address data
+    fetch(
+      `https://geosearch.planninglabs.nyc/v2/search?text=${encodeURIComponent(address)}&size=1`,
+      { headers: { Accept: "application/json" } }
+    )
+      .then((r) => r.json())
+      .then((data) => {
+        const f = data.features?.[0];
+        if (f) {
+          setOtLng(f.geometry.coordinates[0]);
+          setOtLat(f.geometry.coordinates[1]);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setOtGeocoding(false));
+  }, [otSyncEnabled, meal?.host_apartment_id, meal?.location]);
 
   // Check if current user is a host (in create mode, user can always edit)
   const isHost = useMemo(() => {
@@ -448,6 +547,16 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     // Save to database immediately and close
     if (!isCreateMode && mealId) {
       try {
+        // Cancel OneTable reservation if the user has one
+        const reservationId = meal.onetable_reservations?.[currentUserId];
+        if (reservationId) {
+          const tokenSnap = await get(ref(rtdb, `users/${currentUserId}/onetable_token`));
+          if (tokenSnap.exists()) {
+            await cancelOTReservation(tokenSnap.val(), reservationId);
+            await remove(ref(rtdb, `meal_events/${mealId}/onetable_reservations/${currentUserId}`));
+          }
+        }
+
         await remove(ref(rtdb, `meal_events/${mealId}/participants/${currentUserId}`));
         if (onClose) onClose();
       } catch (err) {
@@ -655,6 +764,33 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     try {
       if (isCreateMode) {
         const newMealId = await createMeal(meal);
+
+        // OneTable sync
+        const otWeekConflictCheck = (otSyncEnabled && currentUserId && meal.datetime)
+          ? await hasOTMealThisWeek(currentUserId, new Date(meal.datetime), newMealId)
+          : false;
+        if (otSyncEnabled && otToken && otLat && otLng && otDateChecks.isFriday && otDateChecks.canSync && !otWeekConflictCheck) {
+          try {
+            const aptAddress = apartments.find((a) => a.id === meal.host_apartment_id)?.address || "";
+            const otResult = await createOTEvent(otToken, {
+              full_address: meal.location?.trim() || aptAddress,
+              lat: otLat,
+              lng: otLng,
+            }, meal, otDescription);
+            if (otResult) {
+              await set(ref(rtdb, `meal_events/${newMealId}/onetable_event_id`), otResult.eventId);
+              await set(ref(rtdb, `meal_events/${newMealId}/onetable_event_uuid`), otResult.eventUuid);
+              if (otNourishment && otDateChecks.canNourish) {
+                await requestOTNourishment(otToken, otResult.eventId);
+                await set(ref(rtdb, `meal_events/${newMealId}/onetable_nourishment`), true);
+              }
+            }
+          } catch (otErr: any) {
+            // Non-blocking — meal was created, just warn about OneTable
+            alert(`Meal created, but OneTable sync failed: ${otErr.message}`);
+          }
+        }
+
         alert("Meal created!");
         // Notify all invited participants (everyone except the creator)
         const invitedIds = Object.keys(newParticipants).filter((id) => id !== currentUserId);
@@ -681,8 +817,18 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           data: { tab: "upcoming", mealId: editId, invited: "true" },
         }, "meal_food");
 
-        // Removed participants
+        // Removed participants — cancel their OneTable reservations if any
         const removedIds = Object.keys(prevParticipants).filter((id) => !newParticipants[id] && id !== currentUserId);
+        for (const removedId of removedIds) {
+          const reservationId = (originalMeal as any)?.onetable_reservations?.[removedId];
+          if (reservationId) {
+            const removedTokenSnap = await get(ref(rtdb, `users/${removedId}/onetable_token`));
+            if (removedTokenSnap.exists()) {
+              await cancelOTReservation(removedTokenSnap.val(), reservationId);
+              await remove(ref(rtdb, `meal_events/${editId}/onetable_reservations/${removedId}`));
+            }
+          }
+        }
         notifyUsers(removedIds, {
           title: "Removed from meal",
           body: `You were removed from "${meal.title}"`,
@@ -827,6 +973,14 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
   const handleDelete = async () => {
     if (!meal || !window.confirm("Delete this meal?")) return;
     try {
+      // Cancel OneTable event if linked
+      if (meal.onetable_event_id && currentUserId) {
+        const hostTokenSnap = await get(ref(rtdb, `users/${currentUserId}/onetable_token`));
+        if (hostTokenSnap.exists()) {
+          await cancelOTEvent(hostTokenSnap.val(), meal.onetable_event_id);
+        }
+      }
+
       // Notify all other participants before deleting
       const otherIds = Object.keys(meal.participants).filter((id) => id !== currentUserId);
       notifyUsers(otherIds, {
@@ -842,6 +996,56 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     } catch (err: any) {
       console.error(err);
       alert("Failed to delete meal: " + err.message);
+    }
+  };
+
+  /** Remove the OT link from this meal without cancelling the OT event. */
+  const handleUnsync = async () => {
+    if (!mealId || !window.confirm("Unsync from OneTable? The OneTable event will remain, but future changes here won't affect it.")) return;
+    setOtUnsyncing(true);
+    try {
+      await remove(ref(rtdb, `meal_events/${mealId}/onetable_event_id`));
+      await remove(ref(rtdb, `meal_events/${mealId}/onetable_event_uuid`));
+      await remove(ref(rtdb, `meal_events/${mealId}/onetable_nourishment`));
+    } catch (err: any) {
+      alert("Failed to unsync: " + err.message);
+    } finally {
+      setOtUnsyncing(false);
+    }
+  };
+
+  /** Create a new OT event and link it to this existing meal. */
+  const handleSyncToOT = async () => {
+    if (!mealId || !meal || !otToken || !otLat || !otLng) return;
+    if (!otDateChecks.isFriday) { alert("OneTable events must be on Friday night."); return; }
+    if (!otDateChecks.canSync) { alert("The deadline to create a OneTable event (Tuesday before the meal) has passed."); return; }
+    if (currentUserId && meal.datetime) {
+      const conflict = await hasOTMealThisWeek(currentUserId, new Date(meal.datetime), mealId ?? undefined);
+      if (conflict) { alert("You already have a OneTable meal this week. Only one per week is allowed."); return; }
+    }
+    setOtSyncing(true);
+    try {
+      const aptAddress = apartments.find((a) => a.id === meal.host_apartment_id)?.address || "";
+      const otResult = await createOTEvent(otToken, {
+        full_address: meal.location?.trim() || aptAddress,
+        lat: otLat,
+        lng: otLng,
+      }, meal, otDescription);
+      if (otResult) {
+        await set(ref(rtdb, `meal_events/${mealId}/onetable_event_id`), otResult.eventId);
+        await set(ref(rtdb, `meal_events/${mealId}/onetable_event_uuid`), otResult.eventUuid);
+        if (otNourishment) {
+          await requestOTNourishment(otToken, otResult.eventId);
+          await set(ref(rtdb, `meal_events/${mealId}/onetable_nourishment`), true);
+        }
+        setOtSyncEnabled(false);
+        setOtDescription("");
+        setOtNourishment(false);
+      }
+    } catch (err: any) {
+      alert("OneTable sync failed: " + err.message);
+    } finally {
+      setOtSyncing(false);
     }
   };
 
@@ -1883,6 +2087,289 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           </div>
         )}
 
+        {/* ── OneTable sync section (create mode, host with OT connected) ── */}
+        {isCreateMode && otToken && (
+          <div
+            style={{
+              marginTop: 24,
+              padding: 20,
+              borderRadius: 14,
+              border: `2px solid ${otSyncEnabled ? "#fb923c" : "#e5e7eb"}`,
+              background: otSyncEnabled ? "#fff7ed" : "#f9fafb",
+              transition: "all 0.2s ease",
+            }}
+          >
+            <label
+              style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", userSelect: "none" }}
+            >
+              <input
+                type="checkbox"
+                checked={otSyncEnabled}
+                onChange={(e) => setOtSyncEnabled(e.target.checked)}
+                style={{ width: 18, height: 18, cursor: "pointer" }}
+              />
+              <span style={{ fontWeight: 800, fontSize: "1rem", color: "#9a3412" }}>
+                Sync to OneTable
+              </span>
+            </label>
+
+            {/* Date eligibility warnings */}
+            {meal?.datetime && !otDateChecks.isFriday && (
+              <div style={{ fontSize: "0.82rem", color: "#ef4444", fontWeight: 600, marginTop: 8 }}>
+                ⚠ OneTable events must be on Friday night
+              </div>
+            )}
+            {meal?.datetime && otDateChecks.isFriday && !otDateChecks.canSync && (
+              <div style={{ fontSize: "0.82rem", color: "#ef4444", fontWeight: 600, marginTop: 8 }}>
+                ⚠ Past the Tuesday deadline — OneTable sync is no longer available
+              </div>
+            )}
+            {meal?.datetime && otDateChecks.isFriday && otDateChecks.canSync && otWeekConflict && (
+              <div style={{ fontSize: "0.82rem", color: "#ef4444", fontWeight: 600, marginTop: 8 }}>
+                ⚠ You already have a OneTable meal this week — only one per week allowed
+              </div>
+            )}
+
+            {otSyncEnabled && (
+              <div style={{ marginTop: 16 }}>
+                {otGeocoding && (
+                  <div style={{ fontSize: "0.82rem", color: "#9ca3af", marginBottom: 10 }}>
+                    Looking up coordinates for your address…
+                  </div>
+                )}
+                {!otGeocoding && otLat !== 0 && (
+                  <div style={{ fontSize: "0.82rem", color: "#10b981", fontWeight: 600, marginBottom: 10 }}>
+                    ✓ Location ready
+                  </div>
+                )}
+                {!otGeocoding && !otLat && (
+                  <div style={{ fontSize: "0.82rem", color: "#f97316", fontWeight: 600, marginBottom: 10 }}>
+                    ⚠ Set a host apartment or custom location above first
+                  </div>
+                )}
+
+                <label style={{ display: "block", fontWeight: 700, fontSize: "0.85rem", color: "#374151", marginBottom: 4 }}>
+                  Description{" "}
+                  <span style={{ color: "#ef4444" }}>*</span>{" "}
+                  <span style={{ fontWeight: 400, color: "#9ca3af" }}>
+                    (min 150 chars — {otDescription.length}/150)
+                  </span>
+                </label>
+                <textarea
+                  value={otDescription}
+                  onChange={(e) => setOtDescription(e.target.value)}
+                  placeholder="Describe your meal for OneTable guests. At least 150 characters required…"
+                  rows={4}
+                  style={{
+                    width: "100%",
+                    padding: "12px 16px",
+                    borderRadius: 12,
+                    border: `2px solid ${otDescription.length >= 150 ? "#10b981" : "#fb923c"}`,
+                    fontWeight: 500,
+                    fontSize: "0.95rem",
+                    fontFamily: "Inter, sans-serif",
+                    resize: "vertical",
+                    boxSizing: "border-box",
+                  }}
+                />
+                {otDescription.length > 0 && otDescription.length < 150 && (
+                  <div style={{ color: "#f97316", fontSize: "0.82rem", marginTop: 4, fontWeight: 600 }}>
+                    {150 - otDescription.length} more characters needed
+                  </div>
+                )}
+
+                <label style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14, cursor: otDateChecks.canNourish ? "pointer" : "not-allowed", userSelect: "none", opacity: otDateChecks.canNourish ? 1 : 0.5 }}>
+                  <input
+                    type="checkbox"
+                    checked={otNourishment}
+                    onChange={(e) => otDateChecks.canNourish && setOtNourishment(e.target.checked)}
+                    disabled={!otDateChecks.canNourish}
+                    style={{ width: 16, height: 16, cursor: otDateChecks.canNourish ? "pointer" : "not-allowed" }}
+                  />
+                  <span style={{ fontWeight: 700, fontSize: "0.9rem", color: "#374151" }}>
+                    Request Nourishment (up to $100 sponsorship)
+                    {!otDateChecks.canNourish && (
+                      <span style={{ display: "block", fontWeight: 500, fontSize: "0.8rem", color: "#ef4444" }}>
+                        Past the Wednesday deadline
+                      </span>
+                    )}
+                  </span>
+                </label>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* OneTable section — edit mode */}
+        {!isCreateMode && otToken && isHost && (
+          <div
+            style={{
+              marginTop: 24,
+              padding: 20,
+              borderRadius: 14,
+              border: `2px solid ${meal.onetable_event_id ? "#fb923c" : "#e5e7eb"}`,
+              background: meal.onetable_event_id ? "#fff7ed" : "#f9fafb",
+              transition: "all 0.2s ease",
+            }}
+          >
+            {meal.onetable_event_id ? (
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <div>
+                  <div style={{ fontWeight: 800, color: "#9a3412", fontSize: "0.95rem" }}>🔗 Synced to OneTable</div>
+                  <a
+                    href={meal.onetable_event_uuid
+                      ? `https://dinners.onetable.org/events/${meal.title.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}/${meal.onetable_event_uuid}/details`
+                      : `https://dinners.onetable.org/events/${meal.onetable_event_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ fontSize: "0.82rem", color: "#ea580c", marginTop: 4, display: "inline-block" }}
+                  >
+                    View on OneTable →
+                  </a>
+                  {meal.onetable_nourishment && (
+                    <div style={{ fontSize: "0.8rem", color: "#6b7280", marginTop: 2 }}>Nourishment requested</div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleUnsync}
+                  disabled={otUnsyncing}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: 10,
+                    border: "2px solid #fca5a5",
+                    background: "white",
+                    color: "#ef4444",
+                    fontWeight: 700,
+                    fontSize: "0.85rem",
+                    cursor: otUnsyncing ? "not-allowed" : "pointer",
+                    flexShrink: 0,
+                  }}
+                >
+                  {otUnsyncing ? "Unsyncing…" : "Unsync"}
+                </button>
+              </div>
+            ) : (
+              <>
+                <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", userSelect: "none" }}>
+                  <input
+                    type="checkbox"
+                    checked={otSyncEnabled}
+                    onChange={(e) => setOtSyncEnabled(e.target.checked)}
+                    style={{ width: 18, height: 18, cursor: "pointer" }}
+                  />
+                  <span style={{ fontWeight: 800, fontSize: "1rem", color: "#9a3412" }}>
+                    Sync to OneTable
+                  </span>
+                </label>
+
+                {/* Date eligibility warnings */}
+                {meal?.datetime && !otDateChecks.isFriday && (
+                  <div style={{ fontSize: "0.82rem", color: "#ef4444", fontWeight: 600, marginTop: 8 }}>
+                    ⚠ OneTable events must be on Friday night
+                  </div>
+                )}
+                {meal?.datetime && otDateChecks.isFriday && !otDateChecks.canSync && (
+                  <div style={{ fontSize: "0.82rem", color: "#ef4444", fontWeight: 600, marginTop: 8 }}>
+                    ⚠ Past the Tuesday deadline — OneTable sync is no longer available
+                  </div>
+                )}
+
+                {otSyncEnabled && (
+                  <div style={{ marginTop: 16 }}>
+                    {otGeocoding && (
+                      <div style={{ fontSize: "0.82rem", color: "#9ca3af", marginBottom: 10 }}>
+                        Looking up coordinates for your address…
+                      </div>
+                    )}
+                    {!otGeocoding && otLat !== 0 && (
+                      <div style={{ fontSize: "0.82rem", color: "#10b981", fontWeight: 600, marginBottom: 10 }}>
+                        ✓ Location ready
+                      </div>
+                    )}
+                    {!otGeocoding && !otLat && (
+                      <div style={{ fontSize: "0.82rem", color: "#f97316", fontWeight: 600, marginBottom: 10 }}>
+                        ⚠ Set a host apartment or custom location above first
+                      </div>
+                    )}
+
+                    <label style={{ display: "block", fontWeight: 700, fontSize: "0.85rem", color: "#374151", marginBottom: 4 }}>
+                      Description{" "}
+                      <span style={{ color: "#ef4444" }}>*</span>{" "}
+                      <span style={{ fontWeight: 400, color: "#9ca3af" }}>
+                        (min 150 chars — {otDescription.length}/150)
+                      </span>
+                    </label>
+                    <textarea
+                      value={otDescription}
+                      onChange={(e) => setOtDescription(e.target.value)}
+                      placeholder="Describe your meal for OneTable guests. At least 150 characters required…"
+                      rows={4}
+                      style={{
+                        width: "100%",
+                        padding: "12px 16px",
+                        borderRadius: 12,
+                        border: `2px solid ${otDescription.length >= 150 ? "#10b981" : "#fb923c"}`,
+                        fontWeight: 500,
+                        fontSize: "0.95rem",
+                        fontFamily: "Inter, sans-serif",
+                        resize: "vertical",
+                        boxSizing: "border-box",
+                      }}
+                    />
+                    {otDescription.length > 0 && otDescription.length < 150 && (
+                      <div style={{ color: "#f97316", fontSize: "0.82rem", marginTop: 4, fontWeight: 600 }}>
+                        {150 - otDescription.length} more characters needed
+                      </div>
+                    )}
+
+                    <label style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14, cursor: otDateChecks.canNourish ? "pointer" : "not-allowed", userSelect: "none", opacity: otDateChecks.canNourish ? 1 : 0.5 }}>
+                      <input
+                        type="checkbox"
+                        checked={otNourishment}
+                        onChange={(e) => otDateChecks.canNourish && setOtNourishment(e.target.checked)}
+                        disabled={!otDateChecks.canNourish}
+                        style={{ width: 16, height: 16, cursor: otDateChecks.canNourish ? "pointer" : "not-allowed" }}
+                      />
+                      <span style={{ fontWeight: 700, fontSize: "0.9rem", color: "#374151" }}>
+                        Request Nourishment (up to $100 sponsorship)
+                        {!otDateChecks.canNourish && (
+                          <span style={{ display: "block", fontWeight: 500, fontSize: "0.8rem", color: "#ef4444" }}>
+                            Past the Wednesday deadline
+                          </span>
+                        )}
+                      </span>
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={handleSyncToOT}
+                      disabled={otSyncing || !otLat || otDescription.length < 150 || !otDateChecks.isFriday || !otDateChecks.canSync || otWeekConflict}
+                      style={{
+                        marginTop: 16,
+                        width: "100%",
+                        padding: "12px 0",
+                        borderRadius: 12,
+                        border: "none",
+                        background: (otSyncing || !otLat || otDescription.length < 150 || !otDateChecks.isFriday || !otDateChecks.canSync || otWeekConflict)
+                          ? "#d1d5db"
+                          : "linear-gradient(135deg, #f97316 0%, #ea580c 100%)",
+                        color: "white",
+                        fontWeight: 700,
+                        fontSize: "0.95rem",
+                        cursor: (otSyncing || !otLat || otDescription.length < 150 || !otDateChecks.isFriday || !otDateChecks.canSync || otWeekConflict) ? "not-allowed" : "pointer",
+                        boxShadow: (otSyncing || !otLat || otDescription.length < 150 || !otDateChecks.isFriday || !otDateChecks.canSync || otWeekConflict) ? "none" : "0 4px 12px rgba(249,115,22,0.3)",
+                      }}
+                    >
+                      {otSyncing ? "Syncing…" : "Sync to OneTable →"}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
         <div className="button-bar" style={{ display: "flex", justifyContent: "flex-end", gap: 12, marginTop: 28 }}>
           <button
             onClick={onClose}
@@ -2052,7 +2539,9 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                   !meal.title.trim() ||
                   !meal.host_apartment_id ||
                   !meal.datetime ||
-                  !Object.values(meal.participants).some((p) => p.role === "host" && p.accepted === true)
+                  !Object.values(meal.participants).some((p) => p.role === "host" && p.accepted === true) ||
+                  (otSyncEnabled && otDescription.length < 150) ||
+                  (otSyncEnabled && !otLat)
                 );
                 const isDisabled = saving || createModeInvalid || (!isCreateMode && (isPastMeal || !hasChanges));
                 return (

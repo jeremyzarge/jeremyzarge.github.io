@@ -110,8 +110,26 @@ body {
 }
 
 /* Bottom nav height constant — used to offset scrollable content */
+:root {
+  --bottom-nav-height: 64px;
+}
+
 .has-bottom-nav {
-  padding-bottom: calc(64px + env(safe-area-inset-bottom));
+  padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
+}
+
+/* Lock the bottom nav to a fixed height and exempt its buttons from
+   the global mobile button padding override */
+.mobile-bottom-nav {
+  height: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+
+.mobile-bottom-nav button {
+  height: var(--bottom-nav-height);
+  padding: 10px 4px !important;
+  font-size: inherit !important;
+  box-sizing: border-box;
 }
 
 /* Mobile responsiveness */
@@ -330,7 +348,7 @@ body {
 
   /* Floating action button - smaller on mobile, elevated above bottom nav */
   .fab {
-    bottom: calc(64px + env(safe-area-inset-bottom) + 2px) !important;
+    bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 2px) !important;
     right: 16px !important;
     width: 50px !important;
     height: 50px !important;
@@ -581,7 +599,7 @@ body {
 
   /* Floating action button even smaller, still above bottom nav */
   .fab {
-    bottom: calc(64px + env(safe-area-inset-bottom) + 2px) !important;
+    bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 2px) !important;
     right: 14px !important;
     width: 44px !important;
     height: 44px !important;

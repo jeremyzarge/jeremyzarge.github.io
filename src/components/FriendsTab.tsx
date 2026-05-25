@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { notifyUsers } from "../notifications";
+import { generateFriendInviteUrl } from "../inviteService";
 import {
   acceptFriendRequest,
   rejectFriendRequest,
@@ -41,6 +42,7 @@ export default function FriendsTab({
 }: FriendsTabProps) {
   const [activeSubTab, setActiveSubTab] = useState<SubTab>("friends");
   const [searchQuery, setSearchQuery] = useState("");
+  const [copied, setCopied] = useState(false);
 
   const friendIds = useMemo(() => getFriendIds(relationships), [relationships]);
   const incomingIds = useMemo(() => getIncomingRequestIds(relationships), [relationships]);
@@ -78,8 +80,8 @@ export default function FriendsTab({
       <h2 className="page-title" style={{ marginBottom: 16, color: "white", textShadow: "2px 2px 4px rgba(0,0,0,0.2)", fontWeight: 800, textAlign: "center" }}>
         Friends
       </h2>
-      {/* Search Bar */}
-      <div style={{ marginBottom: 20, display: "flex", justifyContent: "center" }}>
+      {/* Search Bar + Invite Button */}
+      <div style={{ marginBottom: 20, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
         <input
           type="text"
           placeholder="Search for people..."
@@ -98,6 +100,35 @@ export default function FriendsTab({
             boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
           }}
         />
+        <button
+          onClick={async () => {
+            const url = generateFriendInviteUrl(currentUserId);
+            if (navigator.share) {
+              await navigator.share({ title: "Join me on ViteMeals", url });
+            } else {
+              await navigator.clipboard.writeText(url);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2000);
+            }
+          }}
+          style={{
+            padding: "10px 24px",
+            borderRadius: 50,
+            border: "none",
+            background: copied
+              ? "linear-gradient(135deg, #10b981 0%, #059669 100%)"
+              : "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+            color: "white",
+            fontWeight: 700,
+            fontSize: "0.95rem",
+            fontFamily: "Inter, sans-serif",
+            cursor: "pointer",
+            boxShadow: "0 4px 12px rgba(102,126,234,0.35)",
+            transition: "all 0.2s ease",
+          }}
+        >
+          {copied ? "Link copied!" : "Invite a friend"}
+        </button>
       </div>
 
       {/* Search Results */}

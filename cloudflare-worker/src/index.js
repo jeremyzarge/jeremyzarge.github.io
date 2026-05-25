@@ -148,16 +148,48 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, X-Notification-Secret",
 };
 
+const OT_API = "https://app-prod.internal.onetable.org/graphql";
+const OT_FINGERPRINT = "d15058657f86f919b51f5c6912b88d5c";
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
     if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: corsHeaders });
 
-    try {
-      if (request.headers.get("X-Notification-Secret") !== env.NOTIFICATION_SECRET) {
-        return new Response("Unauthorized", { status: 401, headers: corsHeaders });
-      }
+    if (request.headers.get("X-Notification-Secret") !== env.NOTIFICATION_SECRET) {
+      return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+    }
 
+    const url = new URL(request.url);
+
+    // ─── OneTable API proxy ───────────────────────────────────────────────────
+    if (url.pathname === "/onetable") {
+      try {
+        const { token, operationName, variables, query } = await request.json();
+        const otResp = await fetch(OT_API, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json",
+            "x-browser-fingerprint": OT_FINGERPRINT,
+          },
+          body: JSON.stringify({ operationName, variables, query }),
+        });
+        const data = await otResp.json();
+        return new Response(JSON.stringify(data), {
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        });
+      } catch (err) {
+        console.error("OneTable proxy error:", err);
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        });
+      }
+    }
+
+    // ─── Push notifications (default route) ──────────────────────────────────
+    try {
       const { subscriptions, notification } = await request.json();
       const subject = `mailto:${env.VAPID_SUBJECT}`;
       const payload = JSON.stringify(notification);

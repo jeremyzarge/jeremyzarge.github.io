@@ -8,6 +8,16 @@ export type Apartment = {
   address: string;
 };
 
+export type OneTableConfig = {
+  area_id: number;
+  full_address: string;
+  secondary_address: string;
+  neighborhood: string;
+  subneighborhood: string;
+  lat: number;
+  lng: number;
+};
+
 export type Allergies = {
   gluten_free: boolean;
   dairy_free: boolean;
@@ -37,6 +47,10 @@ export type UserProfile = {
   can_bring: CanBring;
   allergies: Allergies;
   placeholder: boolean;
+  dinner_status?: "free" | "busy";
+  lunch_status?: "free" | "busy";
+  onetable_token?: string;
+  onetable_config?: OneTableConfig;
 };
 
 export type MealParticipant = {
@@ -63,6 +77,10 @@ export type Meal = {
   location?: string;
   allowGuestsFoodSelection: boolean;
   messages: Record<string, MealMessage>;
+  onetable_event_id?: number;
+  onetable_event_uuid?: string;
+  onetable_nourishment?: boolean;
+  onetable_reservations?: Record<string, number>;
 };
 
 /**

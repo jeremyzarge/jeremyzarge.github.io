@@ -97,6 +97,8 @@ export default function UserProfileView({
   const [pastMealsShown, setPastMealsShown] = useState(5);
   const [friendAttendsDinner, setFriendAttendsDinner] = useState(false);
   const [friendAttendsLunch, setFriendAttendsLunch] = useState(false);
+  const [dinnerOverride, setDinnerOverride] = useState<"free" | "busy" | null>(null);
+  const [lunchOverride, setLunchOverride] = useState<"free" | "busy" | null>(null);
 
   const user = allUsers.find((u) => u.id === userId);
   const rel = relationships[userId];
@@ -144,6 +146,11 @@ export default function UserProfileView({
         setFriendAttendsLunch(attendsLunch);
       }
 
+      if (userId === currentUserId) {
+        setDinnerOverride(user.dinner_status ?? null);
+        setLunchOverride(user.lunch_status ?? null);
+      }
+
       setLoading(false);
     });
   }, [userId, user, relationships, currentUserId]);
@@ -182,6 +189,13 @@ export default function UserProfileView({
       setActionLoading(false);
     }
   }
+
+  const effectiveDinner = userId === currentUserId
+    ? (dinnerOverride === "busy" ? true : dinnerOverride === "free" ? false : friendAttendsDinner)
+    : (user.dinner_status === "busy" ? true : user.dinner_status === "free" ? false : friendAttendsDinner);
+  const effectiveLunch = userId === currentUserId
+    ? (lunchOverride === "busy" ? true : lunchOverride === "free" ? false : friendAttendsLunch)
+    : (user.lunch_status === "busy" ? true : user.lunch_status === "free" ? false : friendAttendsLunch);
 
   return (
     <div
@@ -265,11 +279,11 @@ export default function UserProfileView({
           </button>
         </div>
 
-        {/* Shabbat meal status — friends or meal-mates */}
-        {canSeeDetails && userId !== currentUserId && (
+        {/* Shabbat meal status */}
+        {(userId === currentUserId || canSeeDetails) && (
           <div style={{ display: "flex", gap: 20, justifyContent: "center", marginTop: 4 }}>
-            <MealStatusIcon icon="🍽️" label="Dinner" attending={friendAttendsDinner} />
-            <MealStatusIcon icon="🥗" label="Lunch" attending={friendAttendsLunch} />
+            <MealStatusIcon icon="🍽️" label="Dinner" attending={effectiveDinner} />
+            <MealStatusIcon icon="🥗" label="Lunch" attending={effectiveLunch} />
           </div>
         )}
 
@@ -414,6 +428,7 @@ export default function UserProfileView({
                             cursor: "pointer",
                             padding: 0,
                             textDecoration: "underline",
+                            fontFamily: "Inter, sans-serif",
                           }}
                         >
                           Load more ({past.length - pastMealsShown} remaining)

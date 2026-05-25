@@ -1,9 +1,29 @@
 import { useEffect, useRef, useState } from "react";
-import { ref, set } from "firebase/database";
+import { ref, set, get } from "firebase/database";
 import { fetchAllApartments, createDefaultAllergies, createDefaultCanBring } from "../utils";
 import { createNumericApartmentId, rtdb } from "../firebaseClient";
 import { createOrUpdateUserNumeric } from "../index";
-import type { Apartment, CanBring, Allergies, UserProfile } from "../types";
+import OneTableConnect from "./OneTableConnect";
+import AddressSearch from "./AddressSearch";
+import type { Apartment, CanBring, Allergies, UserProfile, Meal } from "../types";
+
+function getUpcomingShabbatWindows() {
+  const now = new Date();
+  const daysFromFriday = (now.getDay() - 5 + 7) % 7;
+  const thisFriday = new Date(now);
+  thisFriday.setDate(now.getDate() - daysFromFriday);
+  thisFriday.setHours(0, 0, 0, 0);
+
+  const dinnerStart = new Date(thisFriday); dinnerStart.setHours(17, 0, 0, 0);
+  const dinnerEnd = new Date(thisFriday); dinnerEnd.setDate(thisFriday.getDate() + 1); dinnerEnd.setHours(0, 0, 0, 0);
+  const lunchStart = new Date(thisFriday); lunchStart.setDate(thisFriday.getDate() + 1); lunchStart.setHours(12, 0, 0, 0);
+  const lunchEnd = new Date(thisFriday); lunchEnd.setDate(thisFriday.getDate() + 1); lunchEnd.setHours(15, 0, 0, 0);
+
+  if (now > lunchEnd) {
+    [dinnerStart, dinnerEnd, lunchStart, lunchEnd].forEach(d => d.setDate(d.getDate() + 7));
+  }
+  return { dinnerStart, dinnerEnd, lunchStart, lunchEnd };
+}
 
 interface ProfileEditorProps {
   userId: string;
@@ -24,6 +44,16 @@ export default function ProfileEditor({
   const [firstName, setFirstName] = useState(currentProfile.first_name || "");
   const [lastName, setLastName] = useState(currentProfile.last_name || "");
   const [submitting, setSubmitting] = useState(false);
+  const [showOTConnect, setShowOTConnect] = useState(false);
+  const [otToken, setOtToken] = useState(currentProfile.onetable_token || "");
+  const [otDisconnecting, setOtDisconnecting] = useState(false);
+
+  // Always load fresh OT token on mount — the profile prop may be stale
+  useEffect(() => {
+    get(ref(rtdb, `users/${userId}/onetable_token`)).then((snap) => {
+      setOtToken(snap.exists() ? snap.val() : "");
+    });
+  }, [userId]);
 
   // Apartment state
   const [apartments, setApartments] = useState<Apartment[]>([]);
@@ -36,6 +66,12 @@ export default function ProfileEditor({
   const [editAptAddress, setEditAptAddress] = useState("");
   const [aptSaving, setAptSaving] = useState(false);
   const aptComboRef = useRef<HTMLDivElement>(null);
+
+  // Meal status overrides
+  const [dinnerStatus, setDinnerStatus] = useState<"free" | "busy" | null>(currentProfile.dinner_status ?? null);
+  const [lunchStatus, setLunchStatus] = useState<"free" | "busy" | null>(currentProfile.lunch_status ?? null);
+  const [autoDinnerBusy, setAutoDinnerBusy] = useState(false);
+  const [autoLunchBusy, setAutoLunchBusy] = useState(false);
 
   // Foods user can bring
   const [canBring, setCanBring] = useState<CanBring>(
@@ -90,6 +126,36 @@ export default function ProfileEditor({
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  useEffect(() => {
+    get(ref(rtdb, "meal_events")).then((snap) => {
+      if (!snap.exists()) return;
+      const allMeals = snap.val() as Record<string, Meal>;
+      const { dinnerStart, dinnerEnd, lunchStart, lunchEnd } = getUpcomingShabbatWindows();
+      let dinner = false, lunch = false;
+      for (const meal of Object.values(allMeals)) {
+        const p = (meal.participants || {})[userId];
+        if (p?.accepted === true && meal.datetime) {
+          const dt = new Date(meal.datetime);
+          if (dt >= dinnerStart && dt < dinnerEnd) dinner = true;
+          if (dt >= lunchStart && dt < lunchEnd) lunch = true;
+        }
+      }
+      setAutoDinnerBusy(dinner);
+      setAutoLunchBusy(lunch);
+    });
+  }, [userId]);
+
+  const handleOTDisconnect = async () => {
+    if (!window.confirm("Disconnect OneTable? This will remove your saved token.")) return;
+    setOtDisconnecting(true);
+    try {
+      await set(ref(rtdb, `users/${userId}/onetable_token`), null);
+      setOtToken("");
+    } finally {
+      setOtDisconnecting(false);
+    }
+  };
 
   const filteredApts = aptSearch.trim()
     ? apartments.filter((a) =>
@@ -150,6 +216,10 @@ export default function ProfileEditor({
         can_bring: canBring,
         allergies,
       };
+      delete updatedProfile.dinner_status;
+      delete updatedProfile.lunch_status;
+      if (dinnerStatus) updatedProfile.dinner_status = dinnerStatus;
+      if (lunchStatus) updatedProfile.lunch_status = lunchStatus;
 
       await createOrUpdateUserNumeric(userId, updatedProfile);
       alert("Profile updated!");
@@ -168,6 +238,7 @@ export default function ProfileEditor({
     (newApartment ? !newApartment.name.trim() : false);
 
   return (
+    <>
     <div
       className="modal-overlay"
       style={{
@@ -246,10 +317,11 @@ export default function ProfileEditor({
                 style={inputStyle}
                 autoFocus
               />
-              <input
+              <AddressSearch
                 value={editAptAddress}
-                onChange={(e) => setEditAptAddress(e.target.value)}
-                placeholder="Address"
+                onChange={(v) => setEditAptAddress(v)}
+                onSelect={(addr) => setEditAptAddress(addr)}
+                placeholder="Address (start typing…)"
                 style={inputStyle}
               />
               <div style={{ display: "flex", gap: 8 }}>
@@ -415,14 +487,75 @@ export default function ProfileEditor({
               onChange={(e) => setNewApartment({ ...newApartment, name: e.target.value })}
               style={inputStyle}
             />
-            <input
-              placeholder="Apartment address"
+            <AddressSearch
               value={newApartment.address}
-              onChange={(e) => setNewApartment({ ...newApartment, address: e.target.value })}
+              onChange={(v) => setNewApartment({ ...newApartment, address: v })}
+              onSelect={(addr) => setNewApartment({ ...newApartment, address: addr })}
+              placeholder="Address (start typing for suggestions…)"
               style={inputStyle}
             />
           </>
         )}
+
+        <SectionTitle text="This Shabbat's Status" />
+        <div style={{ display: "flex", gap: 24, justifyContent: "center" }}>
+          {(["dinner", "lunch"] as const).map((meal) => {
+            const value = meal === "dinner" ? dinnerStatus : lunchStatus;
+            const setter = meal === "dinner" ? setDinnerStatus : setLunchStatus;
+            const icon = meal === "dinner" ? "🍽️" : "🥗";
+            const autoBusy = meal === "dinner" ? autoDinnerBusy : autoLunchBusy;
+            const effectiveBusy = value === "busy" ? true : value === "free" ? false : autoBusy;
+            const circleBg = effectiveBusy ? "#fee2e2" : "#dcfce7";
+            const circleBorder = effectiveBusy ? "#dc2626" : "#16a34a";
+            const labelColor = effectiveBusy ? "#dc2626" : "#16a34a";
+            const labelText = meal.toUpperCase();
+            return (
+              <div key={meal} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
+                <div style={{
+                  width: 48, height: 48, borderRadius: "50%",
+                  background: circleBg,
+                  border: `2.5px solid ${circleBorder}`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: "1.5rem",
+                }}>
+                  {icon}
+                </div>
+                <span style={{ fontSize: "0.72rem", fontWeight: 700, color: labelColor, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  {labelText}
+                </span>
+                <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: "1.5px solid #e5e7eb" }}>
+                  {([null, "free", "busy"] as const).map((opt, i) => {
+                    const active = value === opt;
+                    const optLabel = opt === null ? "Auto" : opt === "free" ? "Free" : "Busy";
+                    return (
+                      <button
+                        key={optLabel}
+                        type="button"
+                        onClick={() => setter(opt)}
+                        style={{
+                          padding: "3px 8px",
+                          border: "none",
+                          borderRight: i < 2 ? "1px solid #e5e7eb" : "none",
+                          background: active ? (opt === "busy" ? "#fee2e2" : opt === "free" ? "#dcfce7" : "#f3f4f6") : "white",
+                          color: active ? (opt === "busy" ? "#dc2626" : opt === "free" ? "#16a34a" : "#374151") : "#9ca3af",
+                          fontWeight: 700,
+                          fontSize: "0.65rem",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.04em",
+                          cursor: "pointer",
+                          fontFamily: "Inter, sans-serif",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        {optLabel}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
 
         <SectionTitle text="What can you bring?" />
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
@@ -574,6 +707,93 @@ export default function ProfileEditor({
           </button>
         </div>
 
+        {/* ── OneTable Integration ── */}
+        <SectionTitle text="OneTable Integration" />
+        <div
+          style={{
+            padding: 16,
+            borderRadius: 14,
+            border: "2px solid #fed7aa",
+            background: otToken ? "#fff7ed" : "#f9fafb",
+          }}
+        >
+          {otToken ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontWeight: 700, color: "#9a3412", fontSize: "0.95rem" }}>
+                  ✓ Connected to OneTable
+                </div>
+                <a
+                  href="https://dinners.onetable.org/profile"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontSize: "0.8rem", color: "#ea580c", marginTop: 4, display: "inline-block" }}
+                >
+                  View OneTable profile →
+                </a>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={handleOTDisconnect}
+                  disabled={otDisconnecting}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: 10,
+                    border: "2px solid #fca5a5",
+                    background: "white",
+                    color: "#ef4444",
+                    fontWeight: 700,
+                    fontSize: "0.85rem",
+                    cursor: otDisconnecting ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {otDisconnecting ? "…" : "Disconnect"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowOTConnect(true)}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: 10,
+                    border: "none",
+                    background: "linear-gradient(135deg, #f97316 0%, #ea580c 100%)",
+                    color: "white",
+                    fontWeight: 700,
+                    fontSize: "0.85rem",
+                    cursor: "pointer",
+                  }}
+                >
+                  Refresh Token
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ color: "#6b7280", fontSize: "0.9rem", fontWeight: 500 }}>
+                Connect OneTable to auto-sync your meals and reservations.
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowOTConnect(true)}
+                style={{
+                  padding: "10px 18px",
+                  borderRadius: 10,
+                  border: "none",
+                  background: "linear-gradient(135deg, #f97316 0%, #ea580c 100%)",
+                  color: "white",
+                  fontWeight: 700,
+                  fontSize: "0.9rem",
+                  cursor: "pointer",
+                  boxShadow: "0 4px 12px rgba(249,115,22,0.3)",
+                }}
+              >
+                Connect OneTable
+              </button>
+            </div>
+          )}
+        </div>
+
         <div style={{ display: "flex", gap: 12, marginTop: 20 }}>
           <button
             type="button"
@@ -616,7 +836,22 @@ export default function ProfileEditor({
           </button>
         </div>
       </form>
+
     </div>
+
+    {showOTConnect && (
+      <OneTableConnect
+        userId={userId}
+        existingToken={otToken || undefined}
+        onSaved={async () => {
+          const snap = await get(ref(rtdb, `users/${userId}/onetable_token`));
+          setOtToken(snap.exists() ? snap.val() : "");
+          setShowOTConnect(false);
+        }}
+        onClose={() => setShowOTConnect(false)}
+      />
+    )}
+    </>
   );
 }
 

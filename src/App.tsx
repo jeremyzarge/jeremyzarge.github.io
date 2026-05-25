@@ -17,8 +17,9 @@ import FriendsTab from "./components/FriendsTab";
 import UserProfileView from "./components/UserProfileView";
 import ApartmentProfileView from "./components/ApartmentProfileView";
 import type { UserProfile, Apartment, UserWithId, UserRelationship, CanBring, Allergies } from "./types";
-import { claimMealInvite } from "./inviteService";
+import { claimMealInvite, claimFriendInvite } from "./inviteService";
 import { initPushNotifications, removePushSubscription, notifyUsers } from "./notifications";
+import { createOTReservation, acceptOTReservation, cancelOTReservation } from "./onetableService";
 import NotificationPrefsModal from "./components/NotificationPrefsModal";
 import AdminStats from "./components/AdminStats";
 
@@ -37,19 +38,28 @@ interface ProfileData {
  * Main application component
  */
 export default function App() {
-  // Capture ?invite=TOKEN from URL once on load, then strip it from the bar
+  // Capture URL params once on load, then strip them from the bar
   const pendingInviteToken = useRef<string | null>(
     new URLSearchParams(window.location.search).get("invite")
+  );
+  const pendingFriendInviteId = useRef<string | null>(
+    new URLSearchParams(window.location.search).get("friend_invite")
   );
   const pendingNotifData = useRef<Record<string, string> | null>((() => {
     const param = new URLSearchParams(window.location.search).get("notif");
     if (!param) return null;
     try { return JSON.parse(atob(param)); } catch { return null; }
   })());
+  // Token arrives via postMessage from the bookmarklet (no URL params ever).
+  // sessionStorage is a fallback in case the component remounts before auth fires.
+  const pendingOTToken = useRef<string | null>(
+    sessionStorage.getItem("_ot_pending")
+  );
   useEffect(() => {
     const url = new URL(window.location.href);
     let changed = false;
     if (pendingInviteToken.current) { url.searchParams.delete("invite"); changed = true; }
+    if (pendingFriendInviteId.current) { url.searchParams.delete("friend_invite"); changed = true; }
     if (pendingNotifData.current) { url.searchParams.delete("notif"); changed = true; }
     if (changed) window.history.replaceState({}, "", url.toString());
   }, []);
@@ -63,6 +73,44 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"ledger" | "past" | "upcoming" | "friends" | "profile">("ledger");
   const [showCreate, setShowCreate] = useState(false);
   const [showProfileEditor, setShowProfileEditor] = useState(false);
+
+  // Prevent duplicate saves when the bookmarklet fires postMessage multiple times
+  const otSaved = useRef(false);
+
+  // Receive the OneTable token from the bookmarklet via postMessage (no URL params).
+  // The bookmarklet opens this page and fires {ot_token} repeatedly until we ACK by saving.
+  useEffect(() => {
+    const OT_ORIGINS = ["https://dinners.onetable.org", "https://onetable.org"];
+    async function handleOTMessage(e: MessageEvent) {
+      if (!OT_ORIGINS.includes(e.origin)) return;
+      const token = e.data?.ot_token;
+      if (typeof token !== "string" || !token || otSaved.current) return;
+      pendingOTToken.current = token;
+      sessionStorage.setItem("_ot_pending", token);
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        otSaved.current = true;
+        try {
+          const numericId = await ensureUserNumericMapping(currentUser.uid);
+          await set(ref(rtdb, `users/${numericId}/onetable_token`), token);
+          pendingOTToken.current = null;
+          sessionStorage.removeItem("_ot_pending");
+          const freshProfile = await loadProfile(numericId);
+          if (freshProfile) setProfile(freshProfile);
+          setActiveTab("profile");
+          // Only open editor for first-time setup (no existing config)
+          if (!freshProfile?.onetable_config) {
+            setShowProfileEditor(true);
+          }
+        } catch (err) {
+          otSaved.current = false;
+          console.error("Failed to save OneTable token:", err);
+        }
+      }
+    }
+    window.addEventListener("message", handleOTMessage);
+    return () => window.removeEventListener("message", handleOTMessage);
+  }, []);
   const [viewingProfileUserId, setViewingProfileUserId] = useState<string | null>(null);
   const [viewingMealId, setViewingMealId] = useState<string | null>(null);
   const [viewingInvitedMealId, setViewingInvitedMealId] = useState<string | null>(null);
@@ -70,6 +118,7 @@ export default function App() {
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [showNotifPrefs, setShowNotifPrefs] = useState(false);
   const [showAdminStats, setShowAdminStats] = useState(false);
+  const [showPWAInstructions, setShowPWAInstructions] = useState(false);
   const isAdmin = authUser?.email === "jeremyzarge@gmail.com";
 
   // Cache for users and apartments (loaded once when profile exists)
@@ -156,6 +205,22 @@ export default function App() {
         }
       }
 
+      // Save OneTable token if it arrived via postMessage before auth was ready
+      let justSavedOT = false;
+      const otToken = pendingOTToken.current || sessionStorage.getItem("_ot_pending");
+      if (otToken && !otSaved.current) {
+        otSaved.current = true;
+        try {
+          await set(ref(rtdb, `users/${numericId}/onetable_token`), otToken);
+          pendingOTToken.current = null;
+          sessionStorage.removeItem("_ot_pending");
+          justSavedOT = true;
+        } catch (err) {
+          otSaved.current = false;
+          console.error("Failed to save OneTable token:", err);
+        }
+      }
+
       const prof = await loadProfile(numericId);
       if (!prof || !prof.first_name) {
         setNeedsProfile(true);
@@ -163,6 +228,12 @@ export default function App() {
       } else {
         setProfile(prof);
         setNeedsProfile(false);
+        if (justSavedOT) {
+          setActiveTab("profile");
+          if (!prof?.onetable_config) {
+            setShowProfileEditor(true);
+          }
+        }
 
         // Load users and apartments using utils functions
         const [allUsers, allApartments] = await Promise.all([
@@ -176,12 +247,20 @@ export default function App() {
         // Register this device for push notifications (non-blocking)
         initPushNotifications(numericId);
 
-        // Claim a pending invite link if one was in the URL
+        // Claim a pending meal invite link if one was in the URL
         if (pendingInviteToken.current) {
           const token = pendingInviteToken.current;
           pendingInviteToken.current = null;
           const mealId = await claimMealInvite(token, numericId);
           if (mealId) await handleInviteNavigation(mealId, numericId);
+        }
+
+        // Claim a pending friend invite link if one was in the URL
+        if (pendingFriendInviteId.current) {
+          const inviterId = pendingFriendInviteId.current;
+          pendingFriendInviteId.current = null;
+          await claimFriendInvite(inviterId, numericId);
+          setActiveTab("friends");
         }
       }
 
@@ -239,12 +318,20 @@ export default function App() {
     setUsers(allUsers);
     setApartments(allApartments);
 
-    // Claim a pending invite link if one was in the URL
+    // Claim a pending meal invite link if one was in the URL
     if (pendingInviteToken.current) {
       const token = pendingInviteToken.current;
       pendingInviteToken.current = null;
       const mealId = await claimMealInvite(token, myId);
       if (mealId) await handleInviteNavigation(mealId, myId);
+    }
+
+    // Claim a pending friend invite link if one was in the URL
+    if (pendingFriendInviteId.current) {
+      const inviterId = pendingFriendInviteId.current;
+      pendingFriendInviteId.current = null;
+      await claimFriendInvite(inviterId, myId);
+      setActiveTab("friends");
     }
 
     setLoading(false);
@@ -692,6 +779,64 @@ export default function App() {
               📊 Admin Stats
             </button>
           )}
+          {/* PWA install prompt — mobile only, not already installed */}
+          {window.innerWidth <= 768 && !window.matchMedia("(display-mode: standalone)").matches && (
+            <div style={{ width: "100%", maxWidth: 280 }}>
+              <button
+                onClick={() => setShowPWAInstructions((v) => !v)}
+                style={{
+                  width: "100%",
+                  padding: "14px 32px",
+                  borderRadius: 50,
+                  border: "none",
+                  background: "white",
+                  color: "#f97316",
+                  fontWeight: 700,
+                  fontFamily: "Inter, sans-serif",
+                  fontSize: "1rem",
+                  cursor: "pointer",
+                  boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                }}
+              >
+                📲 Add to Home Screen
+                <span style={{ fontSize: "0.75rem", opacity: 0.7 }}>{showPWAInstructions ? "▲" : "▼"}</span>
+              </button>
+              {showPWAInstructions && (
+                <div style={{
+                  marginTop: 12,
+                  padding: "16px 18px",
+                  background: "rgba(255,255,255,0.95)",
+                  borderRadius: 16,
+                  boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 16,
+                }}>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: "0.85rem", color: "#9a3412", marginBottom: 8 }}>iPhone / iPad — Safari</div>
+                    <ol style={{ margin: 0, paddingLeft: 20, color: "#374151", fontSize: "0.88rem", lineHeight: 1.8 }}>
+                      <li>Tap the <strong>Share</strong> button (box with arrow at the bottom of Safari)</li>
+                      <li>Scroll down and tap <strong>Add to Home Screen</strong></li>
+                      <li>Tap <strong>Add</strong> — ViteMeals will appear on your home screen</li>
+                    </ol>
+                  </div>
+                  <div style={{ borderTop: "1px solid #e5e7eb", paddingTop: 16 }}>
+                    <div style={{ fontWeight: 800, fontSize: "0.85rem", color: "#1e3a5f", marginBottom: 8 }}>Android — Chrome</div>
+                    <ol style={{ margin: 0, paddingLeft: 20, color: "#374151", fontSize: "0.88rem", lineHeight: 1.8 }}>
+                      <li>Tap the <strong>⋮ menu</strong> in the top-right corner of Chrome</li>
+                      <li>Tap <strong>Add to Home screen</strong> or <strong>Install app</strong></li>
+                      <li>Tap <strong>Add</strong> — ViteMeals will appear on your home screen</li>
+                    </ol>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <div style={{ flex: 1 }} />
           <button
             onClick={() => { if (myId) removePushSubscription(myId); localStorage.setItem("manually_signed_out", "1"); signOut(auth); }}
@@ -825,7 +970,7 @@ export default function App() {
           onClose={() => setViewingInvitedMealId(null)}
           onAccept={async () => {
             await set(ref(rtdb, `meal_events/${viewingInvitedMealId}/participants/${myId}/accepted`), true);
-            // Notify meal hosts
+
             const mealSnap = await get(ref(rtdb, `meal_events/${viewingInvitedMealId}`));
             if (mealSnap.exists()) {
               const mealData = mealSnap.val();
@@ -833,6 +978,32 @@ export default function App() {
                 .filter(([id, p]: [string, any]) => p.role === "host" && id !== myId)
                 .map(([id]) => id);
               const myName = profile ? `${profile.first_name} ${profile.last_name}`.trim() : "Someone";
+
+              // OneTable: create reservation and auto-accept with host token
+              if (mealData.onetable_event_id) {
+                const guestTokenSnap = await get(ref(rtdb, `users/${myId}/onetable_token`));
+                if (guestTokenSnap.exists()) {
+                  const reservationId = await createOTReservation(
+                    guestTokenSnap.val(),
+                    mealData.onetable_event_id
+                  );
+                  if (reservationId) {
+                    await set(
+                      ref(rtdb, `meal_events/${viewingInvitedMealId}/onetable_reservations/${myId}`),
+                      reservationId
+                    );
+                    // Auto-accept using the first host with an OT token
+                    for (const hostId of hostIds) {
+                      const hostTokenSnap = await get(ref(rtdb, `users/${hostId}/onetable_token`));
+                      if (hostTokenSnap.exists()) {
+                        await acceptOTReservation(hostTokenSnap.val(), reservationId);
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+
               notifyUsers(hostIds, {
                 title: "Invitation accepted!",
                 body: `${myName} accepted the invite to "${mealData.title ?? "your meal"}"`,
@@ -844,7 +1015,6 @@ export default function App() {
           }}
           onReject={async () => {
             if (!window.confirm("Are you sure you want to reject this invitation?")) return;
-            // Notify hosts before removing
             const mealSnap = await get(ref(rtdb, `meal_events/${viewingInvitedMealId}`));
             if (mealSnap.exists()) {
               const mealData = mealSnap.val();
@@ -852,6 +1022,17 @@ export default function App() {
                 .filter(([id, p]: [string, any]) => p.role === "host" && id !== myId)
                 .map(([id]) => id);
               const myName = profile ? `${profile.first_name} ${profile.last_name}`.trim() : "Someone";
+
+              // Cancel any existing OT reservation (in case they had previously accepted)
+              const reservationId = mealData.onetable_reservations?.[myId];
+              if (reservationId) {
+                const tokenSnap = await get(ref(rtdb, `users/${myId}/onetable_token`));
+                if (tokenSnap.exists()) {
+                  await cancelOTReservation(tokenSnap.val(), reservationId);
+                  await remove(ref(rtdb, `meal_events/${viewingInvitedMealId}/onetable_reservations/${myId}`));
+                }
+              }
+
               notifyUsers(hostIds, {
                 title: "Invitation declined",
                 body: `${myName} declined the invite to "${mealData.title ?? "your meal"}"`,
@@ -876,6 +1057,7 @@ export default function App() {
       {showAdminStats && (
         <AdminStats onClose={() => setShowAdminStats(false)} />
       )}
+
 
       {viewingApartmentId && (
         <ApartmentProfileView

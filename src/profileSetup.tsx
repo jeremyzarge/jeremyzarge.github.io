@@ -26,6 +26,7 @@ export default function ProfileSetup({ user, onComplete, onCancel }: ProfileSetu
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [showAdditionalInfo, setShowAdditionalInfo] = useState(false);
 
   // Apartment - consolidated state (null = existing apartment, object = new apartment)
   const [apartments, setApartments] = useState<Apartment[]>([]);
@@ -161,8 +162,7 @@ export default function ProfileSetup({ user, onComplete, onCancel }: ProfileSetu
         style={{
           display: "flex",
           flexDirection: "column",
-          width: "100%",
-          maxWidth: 580,
+          width: "min(580px, 100%)",
           gap: 20,
           backgroundColor: "white",
           padding: 40,
@@ -245,6 +245,33 @@ export default function ProfileSetup({ user, onComplete, onCancel }: ProfileSetu
           />
         </div>
 
+        <button
+          type="button"
+          onClick={() => setShowAdditionalInfo((v) => !v)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            width: "100%",
+            padding: "12px 16px",
+            background: showAdditionalInfo ? "#f5f3ff" : "#f9fafb",
+            border: "2px solid",
+            borderColor: showAdditionalInfo ? "#c4b5fd" : "#e5e7eb",
+            borderRadius: 12,
+            cursor: "pointer",
+            fontFamily: "Inter, sans-serif",
+            fontWeight: 700,
+            fontSize: "0.95rem",
+            color: showAdditionalInfo ? "#7c3aed" : "#6b7280",
+            transition: "all 0.2s ease",
+          }}
+        >
+          <span>Additional Info (apartment, food, allergies)</span>
+          <span style={{ fontSize: "0.8rem", transition: "transform 0.2s ease", display: "inline-block", transform: showAdditionalInfo ? "rotate(180deg)" : "rotate(0deg)" }}>▼</span>
+        </button>
+
+        {showAdditionalInfo && (
+        <>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <label style={labelStyle}>Apartment</label>
           {selectedApartmentId && !newApartment ? (
@@ -511,6 +538,9 @@ export default function ProfileSetup({ user, onComplete, onCancel }: ProfileSetu
             + Add
           </button>
         </div>
+
+        </>
+        )}
 
         <button
           type="submit"
