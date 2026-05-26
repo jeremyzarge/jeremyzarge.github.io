@@ -2200,8 +2200,8 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           </div>
         )}
 
-        {/* OneTable section — edit mode */}
-        {!isCreateMode && otToken && isHost && (
+        {/* OneTable section — edit mode (info tab only) */}
+        {activeTab === "info" && !isCreateMode && otToken && isHost && (
           <div
             style={{
               marginTop: 24,

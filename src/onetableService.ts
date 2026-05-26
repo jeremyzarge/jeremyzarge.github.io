@@ -445,16 +445,10 @@ export async function createOTReservation(
   eventId: number
 ): Promise<number | null> {
   try {
-    const data = await otRequest(guestToken, "createReservation", {
-      eventId,
-      additionalGuests: [],
-      rsvpNote: "",
-      donation: 0,
-      tables: null,
-      claimedPotluckItems: [],
-      answers: [],
-      includeInMailingList: false,
-    }, CREATE_RESERVATION_QUERY);
+    const variables = { eventId, additionalGuests: [], rsvpNote: "", donation: 0, tables: null, claimedPotluckItems: [], answers: [], includeInMailingList: false };
+    console.log("[OT] createReservation vars:", JSON.stringify(variables));
+    const data = await otRequest(guestToken, "createReservation", variables, CREATE_RESERVATION_QUERY);
+    console.log("[OT] createReservation response:", JSON.stringify(data));
     if (data.errors) throw new Error(data.errors[0]?.message);
     const result = data.data?.createReservation;
     if (result?.errors?.length) throw new Error(result.errors[0]?.message);
@@ -480,14 +474,16 @@ export async function acceptOTReservation(
   reservationId: number
 ): Promise<boolean> {
   try {
-    const data = await otRequest(hostToken, "acceptReservation", {
-      id: reservationId,
-      message: "",
-      reservationIds: [],
-    }, ACCEPT_RESERVATION_QUERY);
-    if (data.errors) return false;
-    return !(data.data?.acceptReservation?.errors?.length);
-  } catch {
+    const variables = { id: reservationId, reservationIds: [], message: "" };
+    console.log("[OT] acceptReservation vars:", JSON.stringify(variables));
+    const data = await otRequest(hostToken, "acceptReservation", variables, ACCEPT_RESERVATION_QUERY);
+    console.log("[OT] acceptReservation response:", JSON.stringify(data));
+    if (data.errors) { console.error("[OT] acceptReservation top-level errors:", data.errors); return false; }
+    const errs = data.data?.acceptReservation?.errors;
+    if (errs?.length) { console.error("[OT] acceptReservation result errors:", errs); return false; }
+    return true;
+  } catch (err: any) {
+    console.error("[OT] acceptReservation failed:", err.message);
     return false;
   }
 }
