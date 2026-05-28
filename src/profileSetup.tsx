@@ -276,31 +276,28 @@ export default function ProfileSetup({ user, onComplete, onCancel }: ProfileSetu
           <label style={labelStyle}>Apartment</label>
           {selectedApartmentId && !newApartment ? (
             <div style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
               padding: "12px 16px",
               borderRadius: 12,
-              border: "2px solid #e5e7eb",
-              background: "#f9fafb",
+              border: "2px solid #d1fae5",
+              background: "#f0fdf4",
             }}>
-              <span>
-                <span style={{ fontWeight: 700, color: "#111827" }}>
-                  {apartments.find((a) => a.id === selectedApartmentId)?.name ?? aptSearch}
-                </span>
-                {apartments.find((a) => a.id === selectedApartmentId)?.address && (
-                  <span style={{ color: "#9ca3af", fontSize: "0.85rem" }}>
-                    {" — "}{apartments.find((a) => a.id === selectedApartmentId)?.address}
-                  </span>
-                )}
-              </span>
-              <button
-                type="button"
-                onClick={() => { setSelectedApartmentId(""); setAptSearch(""); }}
-                style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af", fontSize: "1.1rem", lineHeight: 1, padding: "0 0 0 12px", fontWeight: 700 }}
-              >
-                ✕
-              </button>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontWeight: 700, color: "#111827" }}>
+                    {apartments.find((a) => a.id === selectedApartmentId)?.name ?? aptSearch}
+                  </div>
+                  <div style={{ color: "#059669", fontSize: "0.8rem", fontWeight: 600, marginTop: 2 }}>
+                    Request to join — members will need to approve you
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setSelectedApartmentId(""); setAptSearch(""); }}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af", fontSize: "1.1rem", lineHeight: 1, padding: "0 0 0 12px", fontWeight: 700, flexShrink: 0 }}
+                >
+                  ✕
+                </button>
+              </div>
             </div>
           ) : !newApartment && (
             <div ref={aptComboRef} style={{ position: "relative" }}>
@@ -343,8 +340,9 @@ export default function ProfileSetup({ user, onComplete, onCancel }: ProfileSetu
                       onMouseEnter={(e) => (e.currentTarget.style.background = "#f9fafb")}
                       onMouseLeave={(e) => (e.currentTarget.style.background = "white")}
                     >
-                      <span style={{ fontWeight: 700, color: "#111827" }}>{apt.name}</span>
-                      <span style={{ color: "#9ca3af", fontSize: "0.85rem" }}> — {apt.address}</span>
+                      <div style={{ fontWeight: 700, color: "#111827" }}>{apt.name}</div>
+                      <div style={{ color: "#9ca3af", fontSize: "0.8rem" }}>{apt.address}</div>
+                      <div style={{ color: "#059669", fontSize: "0.75rem", fontWeight: 600 }}>Request to Join →</div>
                     </div>
                   ))}
                   <div

@@ -6,6 +6,29 @@ import { ref, get } from "firebase/database";
 import { rtdb } from "./firebaseClient";
 import type { UserProfile, Apartment, UserWithId, Allergies, CanBring } from "./types";
 
+/** Fetch address suggestions from NYC Planning Labs GeoSearch, Manhattan only. */
+export async function fetchAddressSuggestions(query: string): Promise<string[]> {
+  if (!query || query.length < 3) return [];
+  const res = await fetch(
+    `https://geosearch.planninglabs.nyc/v2/autocomplete?text=${encodeURIComponent(query)}&size=12`,
+    { headers: { Accept: "application/json" } }
+  );
+  const data = await res.json();
+  return (data.features || [])
+    .filter((f: any) => f.properties?.borough === "Manhattan")
+    .slice(0, 6)
+    .map((f: any) => {
+      let label: string = f.properties?.label ?? "";
+      // Strip city/state/zip — cut at ", New York" first, then ", Manhattan" if still present
+      const nyIdx = label.indexOf(", New York");
+      if (nyIdx > 0) label = label.substring(0, nyIdx);
+      const manhIdx = label.indexOf(", Manhattan");
+      if (manhIdx > 0) label = label.substring(0, manhIdx);
+      return label;
+    })
+    .filter(Boolean) as string[];
+}
+
 /**
  * Fetches all users from the database
  * @returns Promise resolving to array of users with IDs

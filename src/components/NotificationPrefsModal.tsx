@@ -44,6 +44,16 @@ const PREFS: { key: NotifPrefKey; label: string; description: string }[] = [
     label: "Guest food updates (hosts only)",
     description: "When guests update their own food assignments",
   },
+  {
+    key: "apartment_requests",
+    label: "Apartment join activity",
+    description: "When someone requests to join your apartment, or a new member is approved",
+  },
+  {
+    key: "apartment_invites",
+    label: "Apartment invitations & updates",
+    description: "When you receive an invite, your request is approved or declined, or you're removed",
+  },
 ];
 
 export default function NotificationPrefsModal({ userId, onClose }: NotificationPrefsModalProps) {
@@ -55,6 +65,8 @@ export default function NotificationPrefsModal({ userId, onClose }: Notification
     meal_deleted: true,
     host_invites: true,
     host_guest_food: true,
+    apartment_requests: true,
+    apartment_invites: true,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

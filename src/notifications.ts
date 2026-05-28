@@ -25,7 +25,9 @@ export type NotifPrefKey =
   | "meal_food"         // food assigned/removed, role changed
   | "meal_deleted"      // meal was deleted
   | "host_invites"      // (hosts) invite accepted / declined
-  | "host_guest_food";  // (hosts) guest updated their own food
+  | "host_guest_food"   // (hosts) guest updated their own food
+  | "apartment_requests"  // (members) someone requests to join / new member joined
+  | "apartment_invites";  // invite received, request approved/declined, removed from apartment
 
 function urlBase64ToUint8Array(b64: string): Uint8Array {
   const padding = "=".repeat((4 - (b64.length % 4)) % 4);

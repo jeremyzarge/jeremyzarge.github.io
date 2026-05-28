@@ -4,7 +4,7 @@
 
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, type User } from "firebase/auth";
-import { getDatabase, ref, get, set, type Database } from "firebase/database";
+import { getDatabase, ref, get, set, update, type Database } from "firebase/database";
 
 const firebaseConfig = {
   apiKey: "AIzaSyA-mvnZp40kJHJ0qIQZZ6zaFmNMSN5V1C8",
@@ -111,7 +111,7 @@ export async function createNumericApartmentId(name: string, address: string): P
  * @param address - New apartment address
  */
 export async function updateApartment(id: string, name: string, address: string): Promise<void> {
-  await set(ref(rtdb, `apartments/${id}`), { name, address });
+  await update(ref(rtdb, `apartments/${id}`), { name, address });
 }
 
 /**

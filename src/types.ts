@@ -43,6 +43,7 @@ export type UserProfile = {
   first_name: string;
   last_name: string;
   apartment: string;
+  pending_apartment_request?: string; // aptId of a pending join request
   email?: string;
   can_bring: CanBring;
   allergies: Allergies;
@@ -51,6 +52,15 @@ export type UserProfile = {
   lunch_status?: "free" | "busy";
   onetable_token?: string;
   onetable_config?: OneTableConfig;
+};
+
+export type ApartmentInvite = {
+  aptId: string;
+  aptName: string;
+  invitedBy: string;
+  invitedByName: string;
+  timestamp: number;
+  type?: "removal";
 };
 
 export type MealParticipant = {
@@ -79,6 +89,7 @@ export type Meal = {
   messages: Record<string, MealMessage>;
   onetable_event_id?: number;
   onetable_event_uuid?: string;
+  onetable_description?: string;
   onetable_nourishment?: boolean;
   onetable_reservations?: Record<string, number>;
 };

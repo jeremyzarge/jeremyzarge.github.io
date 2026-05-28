@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from "react";
-import { ref, get, set, remove } from "firebase/database";
+import { ref, get, set, remove, onValue, off } from "firebase/database";
 import { signOut } from "firebase/auth";
 import type { User } from "firebase/auth";
 import firebaseClient, { rtdb, ensureUserNumericMapping, createNumericApartmentId, loginWithGoogle } from "./firebaseClient";
@@ -16,9 +16,17 @@ import ProfileEditor from "./components/ProfileEditor";
 import FriendsTab from "./components/FriendsTab";
 import UserProfileView from "./components/UserProfileView";
 import ApartmentProfileView from "./components/ApartmentProfileView";
-import type { UserProfile, Apartment, UserWithId, UserRelationship, CanBring, Allergies } from "./types";
+import type { UserProfile, Apartment, UserWithId, UserRelationship, CanBring, Allergies, ApartmentInvite } from "./types";
 import { claimMealInvite, claimFriendInvite } from "./inviteService";
 import { initPushNotifications, removePushSubscription, notifyUsers } from "./notifications";
+import {
+  subscribeToUserInvites,
+  acceptApartmentInvite,
+  declineApartmentInvite,
+  clearAllInvitesForUser,
+  requestToJoinApartment,
+  cancelJoinRequest,
+} from "./apartmentService";
 import { createOTReservation, acceptOTReservation, cancelOTReservation } from "./onetableService";
 import NotificationPrefsModal from "./components/NotificationPrefsModal";
 import AdminStats from "./components/AdminStats";
@@ -125,6 +133,9 @@ export default function App() {
   const [users, setUsers] = useState<UserWithId[]>([]);
   const [apartments, setApartments] = useState<Apartment[]>([]);
 
+  // Apartment invites for current user
+  const [aptInvites, setAptInvites] = useState<ApartmentInvite[]>([]);
+
   // Friends / relationships
   const [relationships, setRelationships] = useState<Record<string, UserRelationship>>({});
   const friendIds = useMemo(() => getFriendIds(relationships), [relationships]);
@@ -133,6 +144,7 @@ export default function App() {
   function handleNotifNavigation(data: Record<string, string>) {
     const tab = data.tab as typeof activeTab | undefined;
     if (tab) setActiveTab(tab);
+    if (data.aptId) setViewingApartmentId(data.aptId);
     if (data.mealId) {
       if (data.invited === "true") {
         setViewingInvitedMealId(data.mealId);
@@ -278,6 +290,77 @@ export default function App() {
     return subscribeToRelationships(myId, setRelationships);
   }, [myId]);
 
+  // Subscribe to apartment invites for current user
+  useEffect(() => {
+    if (!myId) {
+      setAptInvites([]);
+      return;
+    }
+    return subscribeToUserInvites(myId, setAptInvites);
+  }, [myId]);
+
+  // Watch for removal signals written to apartment_invites by a member.
+  // Self-clear apartment field (we can write our own node) then refresh.
+  useEffect(() => {
+    if (!myId) return;
+    const r = ref(rtdb, `apartment_invites/${myId}`);
+    const handler = async (snap: any) => {
+      if (!snap.exists()) return;
+      const entries = snap.val() as Record<string, { type?: string; aptId?: string }>;
+      const removal = Object.values(entries).find((e) => e.type === "removal");
+      if (!removal?.aptId) return;
+      const aptId = removal.aptId;
+      await Promise.all([
+        set(ref(rtdb, `users/${myId}/apartment`), ""),
+        remove(ref(rtdb, `apartment_invites/${myId}/${aptId}`)),
+      ]);
+      await refreshProfileAndUsers();
+    };
+    onValue(r, handler);
+    return () => off(r, "value", handler);
+  }, [myId]);
+
+  // Watch own join request record for approval or rejection.
+  // Approval: approver sets approved:true on the record (apartment_requests allows auth writes).
+  // Rejection: approver removes the record entirely.
+  // Either way, the requester's app self-updates its own user node (self-writes are always allowed).
+  useEffect(() => {
+    if (!myId || !profile?.pending_apartment_request) return;
+    const aptId = profile.pending_apartment_request;
+    const r = ref(rtdb, `apartment_requests/${aptId}/${myId}`);
+    const handler = async (snap: any) => {
+      if (snap.exists() && !snap.val()?.approved) return; // still pending, nothing to do
+      if (snap.exists() && snap.val()?.approved) {
+        // Approved — set our own apartment, clean up request, clear all outstanding invites
+        await Promise.all([
+          set(ref(rtdb, `users/${myId}/apartment`), aptId),
+          remove(ref(rtdb, `users/${myId}/pending_apartment_request`)),
+          remove(ref(rtdb, `apartment_requests/${aptId}/${myId}`)),
+        ]);
+        await clearAllInvitesForUser(myId);
+      } else {
+        // Rejected — clear pending
+        await remove(ref(rtdb, `users/${myId}/pending_apartment_request`));
+      }
+      await refreshProfileAndUsers();
+    };
+    onValue(r, handler);
+    return () => off(r, "value", handler);
+  }, [myId, profile?.pending_apartment_request]);
+
+  /** Refresh profile + user/apartment lists without closing any modals */
+  async function refreshProfileAndUsers() {
+    if (!myId) return;
+    const [prof, allUsers, allApartments] = await Promise.all([
+      loadProfile(myId),
+      fetchAllUsers(),
+      fetchAllApartments(),
+    ]);
+    setProfile(prof);
+    setUsers(allUsers);
+    setApartments(allApartments);
+  }
+
   /**
    * Handle profile setup completion
    */
@@ -285,12 +368,17 @@ export default function App() {
     if (!myId || !authUser) throw new Error("Missing auth or numeric id");
     setLoading(true);
 
-    let aptId: string | null = profileData.apartmentId ?? null;
+    let aptId: string | null = null;
+    let pendingAptId: string | undefined;
+
     if (profileData.newApartment) {
       aptId = await createNumericApartmentId(
         profileData.newApartment.name,
         profileData.newApartment.address
       );
+    } else if (profileData.apartmentId) {
+      // Requesting to join an existing apartment
+      pendingAptId = profileData.apartmentId;
     }
 
     const profileObj: UserProfile = {
@@ -301,9 +389,20 @@ export default function App() {
       can_bring: profileData.can_bring,
       allergies: profileData.allergies,
       placeholder: false,
+      ...(pendingAptId ? { pending_apartment_request: pendingAptId } : {}),
     };
 
     await createOrUpdateUserNumeric(myId, profileObj);
+
+    // Write the join request and notify members
+    if (pendingAptId) {
+      await requestToJoinApartment(myId, pendingAptId, `${profileData.first_name} ${profileData.last_name}`.trim());
+    }
+
+    // If user is joining/creating an apartment, clear any outstanding invites
+    if (aptId || pendingAptId) {
+      await clearAllInvitesForUser(myId);
+    }
 
     const prof = await loadProfile(myId);
     setProfile(prof);
@@ -317,6 +416,19 @@ export default function App() {
 
     setUsers(allUsers);
     setApartments(allApartments);
+
+    // Notify existing members of the join request
+    if (pendingAptId) {
+      const memberIds = allUsers.filter((u) => u.apartment === pendingAptId).map((u) => u.id);
+      const myName = `${profileData.first_name} ${profileData.last_name}`.trim();
+      const aptObj = allApartments.find((a) => a.id === pendingAptId);
+      notifyUsers(memberIds, {
+        title: "New join request",
+        body: `${myName} wants to join ${aptObj?.name ?? "your apartment"}.`,
+        tag: `apt-request-${pendingAptId}-${myId}`,
+        data: { tab: "profile", aptId: pendingAptId },
+      }, "apartment_requests");
+    }
 
     // Claim a pending meal invite link if one was in the URL
     if (pendingInviteToken.current) {
@@ -385,19 +497,7 @@ export default function App() {
   async function handleProfileSaved() {
     if (!myId) return;
     setLoading(true);
-
-    const prof = await loadProfile(myId);
-    setProfile(prof);
-
-    // Reload users and apartments
-    const [allUsers, allApartments] = await Promise.all([
-      fetchAllUsers(),
-      fetchAllApartments(),
-    ]);
-
-    setUsers(allUsers);
-    setApartments(allApartments);
-
+    await refreshProfileAndUsers();
     setLoading(false);
     setShowProfileEditor(false);
   }
@@ -720,6 +820,71 @@ export default function App() {
               </p>
             )}
           </div>
+
+          {/* Apartment link */}
+          {profile?.apartment ? (
+            <button
+              onClick={() => setViewingApartmentId(profile.apartment)}
+              style={{
+                padding: "14px 32px",
+                borderRadius: 50,
+                border: "none",
+                background: "white",
+                color: "#059669",
+                fontWeight: 700,
+                fontFamily: "Inter, sans-serif",
+                fontSize: "1rem",
+                cursor: "pointer",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
+                width: "100%",
+                maxWidth: 280,
+              }}
+            >
+              🏠 {apartments.find((a) => a.id === profile.apartment)?.name ?? "My Apartment"}
+            </button>
+          ) : profile?.pending_apartment_request ? (
+            <div style={{ width: "100%", maxWidth: 280, display: "flex", flexDirection: "column", gap: 8 }}>
+              <button
+                onClick={() => setViewingApartmentId(profile.pending_apartment_request!)}
+                style={{
+                  padding: "12px 20px",
+                  borderRadius: 14,
+                  border: "none",
+                  background: "rgba(255,255,255,0.9)",
+                  color: "#047857",
+                  fontWeight: 600,
+                  fontSize: "0.9rem",
+                  textAlign: "center",
+                  width: "100%",
+                  boxSizing: "border-box",
+                  cursor: "pointer",
+                }}
+              >
+                Request pending for {apartments.find((a) => a.id === profile.pending_apartment_request)?.name ?? "apartment"} →
+              </button>
+              <button
+                onClick={async () => {
+                  await cancelJoinRequest(myId, profile.pending_apartment_request!);
+                  await refreshProfileAndUsers();
+                }}
+                style={{
+                  padding: "10px 20px",
+                  borderRadius: 14,
+                  border: "1px solid rgba(255,255,255,0.5)",
+                  background: "rgba(255,255,255,0.15)",
+                  color: "rgba(255,255,255,0.9)",
+                  fontWeight: 600,
+                  fontSize: "0.85rem",
+                  cursor: "pointer",
+                  width: "100%",
+                  boxSizing: "border-box",
+                }}
+              >
+                Cancel Request
+              </button>
+            </div>
+          ) : null}
+
           <button
             onClick={() => setShowProfileEditor(true)}
             style={{
@@ -882,6 +1047,23 @@ export default function App() {
           currentProfile={profile}
           onSaved={handleProfileSaved}
           onCancel={() => setShowProfileEditor(false)}
+          onViewApartment={(aptId) => setViewingApartmentId(aptId)}
+          onProfileChanged={refreshProfileAndUsers}
+          aptInvites={aptInvites}
+          onAcceptInvite={async (invite) => {
+            await acceptApartmentInvite(myId, invite.aptId);
+            await refreshProfileAndUsers();
+            notifyUsers([invite.invitedBy], {
+              title: "Invitation accepted!",
+              body: `${displayName} joined ${invite.aptName}.`,
+              tag: `apt-invite-accepted-${invite.aptId}-${myId}`,
+              data: { tab: "profile", aptId: invite.aptId },
+            }, "apartment_requests");
+          }}
+          onDeclineInvite={async (invite) => {
+            await declineApartmentInvite(myId, invite.aptId);
+            await refreshProfileAndUsers();
+          }}
         />
       )}
 
@@ -1063,6 +1245,7 @@ export default function App() {
         <ApartmentProfileView
           apartmentId={viewingApartmentId}
           currentUserId={myId}
+          currentUser={profile}
           allUsers={users}
           onClose={() => setViewingApartmentId(null)}
           onViewProfile={(id: string) => {
@@ -1073,6 +1256,7 @@ export default function App() {
             setViewingApartmentId(null);
             setViewingMealId(mealId);
           }}
+          onApartmentUpdated={refreshProfileAndUsers}
         />
       )}
     </div>

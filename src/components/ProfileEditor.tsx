@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { ref, set, get } from "firebase/database";
-import { fetchAllApartments, createDefaultAllergies, createDefaultCanBring } from "../utils";
-import { createNumericApartmentId, rtdb } from "../firebaseClient";
+import { fetchAllApartments, fetchAddressSuggestions, createDefaultAllergies, createDefaultCanBring } from "../utils";
+import { rtdb, createNumericApartmentId } from "../firebaseClient";
 import { createOrUpdateUserNumeric } from "../index";
+import { cancelJoinRequest, clearUserApartmentPending, requestToJoinApartment } from "../apartmentService";
 import OneTableConnect from "./OneTableConnect";
-import AddressSearch from "./AddressSearch";
-import type { Apartment, CanBring, Allergies, UserProfile, Meal } from "../types";
+import type { Apartment, ApartmentInvite, CanBring, Allergies, UserProfile, Meal } from "../types";
 
 function getUpcomingShabbatWindows() {
   const now = new Date();
@@ -30,6 +30,11 @@ interface ProfileEditorProps {
   currentProfile: UserProfile;
   onSaved: () => void;
   onCancel: () => void;
+  onViewApartment?: (aptId: string) => void;
+  onProfileChanged?: () => void;
+  aptInvites?: ApartmentInvite[];
+  onAcceptInvite?: (invite: ApartmentInvite) => void;
+  onDeclineInvite?: (invite: ApartmentInvite) => void;
 }
 
 /**
@@ -40,6 +45,11 @@ export default function ProfileEditor({
   currentProfile,
   onSaved,
   onCancel,
+  onViewApartment,
+  onProfileChanged,
+  aptInvites = [],
+  onAcceptInvite,
+  onDeclineInvite,
 }: ProfileEditorProps) {
   const [firstName, setFirstName] = useState(currentProfile.first_name || "");
   const [lastName, setLastName] = useState(currentProfile.last_name || "");
@@ -55,17 +65,19 @@ export default function ProfileEditor({
     });
   }, [userId]);
 
-  // Apartment state
+  // Apartment display name + search/create (only shown when user has no apartment)
   const [apartments, setApartments] = useState<Apartment[]>([]);
-  const [selectedApartmentId, setSelectedApartmentId] = useState(currentProfile.apartment || "");
-  const [newApartment, setNewApartment] = useState<{ name: string; address: string } | null>(null);
   const [aptSearch, setAptSearch] = useState("");
   const [aptDropdownOpen, setAptDropdownOpen] = useState(false);
-  const [editingCurrentApt, setEditingCurrentApt] = useState(false);
-  const [editAptName, setEditAptName] = useState("");
-  const [editAptAddress, setEditAptAddress] = useState("");
-  const [aptSaving, setAptSaving] = useState(false);
+  const [aptActionLoading, setAptActionLoading] = useState(false);
+  const [creatingNewApt, setCreatingNewApt] = useState(false);
+  const [newAptName, setNewAptName] = useState("");
+  const [newAptAddress, setNewAptAddress] = useState("");
+  const [newAptUnit, setNewAptUnit] = useState("");
+  const [addressSuggestions, setAddressSuggestions] = useState<string[]>([]);
+  const [addressDropdownOpen, setAddressDropdownOpen] = useState(false);
   const aptComboRef = useRef<HTMLDivElement>(null);
+  const addressComboRef = useRef<HTMLDivElement>(null);
 
   // Meal status overrides
   const [dinnerStatus, setDinnerStatus] = useState<"free" | "busy" | null>(currentProfile.dinner_status ?? null);
@@ -108,13 +120,7 @@ export default function ProfileEditor({
   ];
 
   useEffect(() => {
-    fetchAllApartments().then((apts) => {
-      setApartments(apts);
-      if (currentProfile.apartment) {
-        const cur = apts.find((a) => a.id === currentProfile.apartment);
-        if (cur) setAptSearch(cur.name);
-      }
-    });
+    fetchAllApartments().then(setApartments);
   }, []);
 
   useEffect(() => {
@@ -122,10 +128,27 @@ export default function ProfileEditor({
       if (aptComboRef.current && !aptComboRef.current.contains(e.target as Node)) {
         setAptDropdownOpen(false);
       }
+      if (addressComboRef.current && !addressComboRef.current.contains(e.target as Node)) {
+        setAddressDropdownOpen(false);
+      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  // Debounced address autocomplete
+  useEffect(() => {
+    const q = newAptAddress.trim();
+    if (!q || q.length < 3) { setAddressSuggestions([]); return; }
+    const timeout = setTimeout(async () => {
+      try {
+        const labels = await fetchAddressSuggestions(q);
+        setAddressSuggestions(labels);
+        if (labels.length > 0) setAddressDropdownOpen(true);
+      } catch {}
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [newAptAddress]);
 
   useEffect(() => {
     get(ref(rtdb, "meal_events")).then((snap) => {
@@ -156,12 +179,6 @@ export default function ProfileEditor({
       setOtDisconnecting(false);
     }
   };
-
-  const filteredApts = aptSearch.trim()
-    ? apartments.filter((a) =>
-        `${a.name} ${a.address}`.toLowerCase().includes(aptSearch.toLowerCase())
-      )
-    : [];
 
   const toggleCanBring = (key: keyof Omit<CanBring, "custom">) => {
     setCanBring((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -200,19 +217,10 @@ export default function ProfileEditor({
     setSubmitting(true);
 
     try {
-      let aptId: string | null = selectedApartmentId || null;
-      if (newApartment) {
-        aptId = await createNumericApartmentId(
-          newApartment.name.trim(),
-          newApartment.address.trim()
-        );
-      }
-
       const updatedProfile: UserProfile = {
         ...currentProfile,
         first_name: firstName.trim(),
         last_name: lastName.trim(),
-        apartment: aptId || "",
         can_bring: canBring,
         allergies,
       };
@@ -232,10 +240,7 @@ export default function ProfileEditor({
     }
   };
 
-  const isDisabled =
-    !firstName.trim() ||
-    !lastName.trim() ||
-    (newApartment ? !newApartment.name.trim() : false);
+  const isDisabled = !firstName.trim() || !lastName.trim();
 
   return (
     <>
@@ -306,130 +311,177 @@ export default function ProfileEditor({
           style={inputStyle}
         />
 
-        {selectedApartmentId && !newApartment ? (
-          editingCurrentApt ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "14px 16px", borderRadius: 12, border: "2px solid #f093fb", background: "#fdf2f8" }}>
-              <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "#764ba2", marginBottom: 2 }}>Edit Apartment</div>
-              <input
-                value={editAptName}
-                onChange={(e) => setEditAptName(e.target.value)}
-                placeholder="Apartment name"
-                style={inputStyle}
-                autoFocus
-              />
-              <AddressSearch
-                value={editAptAddress}
-                onChange={(v) => setEditAptAddress(v)}
-                onSelect={(addr) => setEditAptAddress(addr)}
-                placeholder="Address (start typing…)"
-                style={inputStyle}
-              />
-              <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  type="button"
-                  onClick={() => setEditingCurrentApt(false)}
-                  style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "2px solid #e5e7eb", background: "white", color: "#6b7280", fontWeight: 700, cursor: "pointer", fontSize: "0.9rem" }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={!editAptName.trim() || aptSaving}
-                  onClick={async () => {
-                    if (!editAptName.trim()) return;
-                    setAptSaving(true);
-                    try {
-                      await set(ref(rtdb, `apartments/${selectedApartmentId}`), {
-                        name: editAptName.trim(),
-                        address: editAptAddress.trim(),
-                      });
-                      setApartments((prev) =>
-                        prev.map((a) =>
-                          a.id === selectedApartmentId
-                            ? { ...a, name: editAptName.trim(), address: editAptAddress.trim() }
-                            : a
-                        )
-                      );
-                      setAptSearch(editAptName.trim());
-                      setEditingCurrentApt(false);
-                    } finally {
-                      setAptSaving(false);
-                    }
-                  }}
-                  style={{
-                    flex: 1,
-                    padding: "10px 0",
-                    borderRadius: 10,
-                    border: "none",
-                    background: !editAptName.trim() || aptSaving ? "#d1d5db" : "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
-                    color: "white",
-                    fontWeight: 700,
-                    cursor: !editAptName.trim() || aptSaving ? "not-allowed" : "pointer",
-                    fontSize: "0.9rem",
-                  }}
-                >
-                  {aptSaving ? "Saving…" : "Save"}
-                </button>
-              </div>
-            </div>
-          ) : (
+        {/* Apartment — read-only, managed via apartment popup */}
+        {currentProfile.apartment ? (
+          <div
+            onClick={() => onViewApartment?.(currentProfile.apartment)}
+            style={{
+              padding: "12px 16px",
+              borderRadius: 12,
+              border: "2px solid #d1fae5",
+              background: "#f0fdf4",
+              cursor: onViewApartment ? "pointer" : "default",
+              fontWeight: 700,
+              color: "#047857",
+              fontSize: "0.95rem",
+            }}
+          >
+            🏠 {apartments.find((a) => a.id === currentProfile.apartment)?.name ?? "Your Apartment"}
+          </div>
+        ) : currentProfile.pending_apartment_request ? (
           <div style={{
+            padding: "12px 16px",
+            borderRadius: 12,
+            border: "2px solid #fde68a",
+            background: "#fefce8",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: "12px 16px",
-            borderRadius: 12,
-            border: "2px solid #e5e7eb",
-            background: "#f9fafb",
+            gap: 10,
           }}>
-            <span style={{ minWidth: 0, flex: 1, overflow: "hidden" }}>
-              <span style={{ fontWeight: 700, color: "#111827" }}>
-                {apartments.find((a) => a.id === selectedApartmentId)?.name ?? aptSearch}
-              </span>
-              {apartments.find((a) => a.id === selectedApartmentId)?.address && (
-                <span style={{ color: "#9ca3af", fontSize: "0.85rem" }}>
-                  {" — "}{apartments.find((a) => a.id === selectedApartmentId)?.address}
-                </span>
+            <div style={{ color: "#92400e", fontSize: "0.9rem", fontWeight: 600 }}>
+              Request pending for {apartments.find((a) => a.id === currentProfile.pending_apartment_request)?.name ?? "apartment"}
+            </div>
+            <button
+              type="button"
+              onClick={async () => {
+                await cancelJoinRequest(userId, currentProfile.pending_apartment_request!);
+                onProfileChanged?.();
+              }}
+              style={{
+                padding: "6px 14px",
+                borderRadius: 8,
+                border: "1px solid #fca5a5",
+                background: "white",
+                color: "#ef4444",
+                fontWeight: 700,
+                fontSize: "0.8rem",
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : creatingNewApt ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "14px 16px", borderRadius: 12, border: "2px solid #d1fae5", background: "#f0fdf4" }}>
+            <div style={{ fontWeight: 700, color: "#047857", fontSize: "0.9rem" }}>Create New Apartment</div>
+            <input
+              value={newAptName}
+              onChange={(e) => setNewAptName(e.target.value)}
+              placeholder="Apartment name *"
+              autoFocus
+              style={inputStyle}
+            />
+            <div ref={addressComboRef} style={{ position: "relative" }}>
+              <input
+                value={newAptAddress}
+                onChange={(e) => { setNewAptAddress(e.target.value); }}
+                onFocus={() => { if (addressSuggestions.length > 0) setAddressDropdownOpen(true); }}
+                placeholder="Street address (optional)"
+                style={inputStyle}
+              />
+              {addressDropdownOpen && addressSuggestions.length > 0 && (
+                <div style={{
+                  position: "absolute",
+                  top: "calc(100% + 4px)",
+                  left: 0,
+                  right: 0,
+                  background: "white",
+                  border: "2px solid #d1fae5",
+                  borderRadius: 12,
+                  zIndex: 300,
+                  maxHeight: 220,
+                  overflowY: "auto",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+                }}>
+                  {addressSuggestions.map((label) => (
+                    <div
+                      key={label}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setNewAptAddress(label);
+                        setAddressDropdownOpen(false);
+                        setAddressSuggestions([]);
+                      }}
+                      style={{ padding: "10px 16px", cursor: "pointer", borderBottom: "1px solid #f3f4f6", fontSize: "0.9rem", fontWeight: 600, color: "#047857" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "#f0fdf4")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "white")}
+                    >
+                      {label}
+                    </div>
+                  ))}
+                </div>
               )}
-            </span>
-            <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+            </div>
+            <input
+              value={newAptUnit}
+              onChange={(e) => setNewAptUnit(e.target.value)}
+              placeholder="Apt / Unit (optional)"
+              style={inputStyle}
+            />
+            <div style={{ display: "flex", gap: 8 }}>
               <button
                 type="button"
-                onClick={() => {
-                  const apt = apartments.find((a) => a.id === selectedApartmentId);
-                  setEditAptName(apt?.name ?? "");
-                  setEditAptAddress(apt?.address ?? "");
-                  setEditingCurrentApt(true);
-                }}
-                style={{ background: "none", border: "none", cursor: "pointer", color: "#764ba2", fontSize: "1rem", lineHeight: 1, padding: "0 6px", fontWeight: 700 }}
-                title="Edit apartment"
+                onClick={() => { setCreatingNewApt(false); setNewAptName(""); setNewAptAddress(""); setNewAptUnit(""); setAddressSuggestions([]); }}
+                style={{ flex: 1, padding: "9px 0", borderRadius: 10, border: "1px solid #d1d5db", background: "white", color: "#6b7280", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}
               >
-                ✏️
+                Back
               </button>
               <button
                 type="button"
-                onClick={() => { setSelectedApartmentId(""); setAptSearch(""); setEditingCurrentApt(false); }}
-                style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af", fontSize: "1.1rem", lineHeight: 1, padding: "0 0 0 4px", fontWeight: 700 }}
+                disabled={!newAptName.trim() || aptActionLoading}
+                onClick={async () => {
+                  if (!newAptName.trim()) return;
+                  setAptActionLoading(true);
+                  try {
+                    const fullAddress = newAptUnit.trim()
+                      ? `${newAptAddress.trim()}, ${newAptUnit.trim()}`
+                      : newAptAddress.trim();
+                    const newAptId = await createNumericApartmentId(newAptName.trim(), fullAddress);
+                    await set(ref(rtdb, `users/${userId}/apartment`), newAptId);
+                    await clearUserApartmentPending(userId);
+                    onProfileChanged?.();
+                    setCreatingNewApt(false);
+                    setNewAptName("");
+                    setNewAptAddress("");
+                    setNewAptUnit("");
+                    setAddressSuggestions([]);
+                  } finally {
+                    setAptActionLoading(false);
+                  }
+                }}
+                style={{
+                  flex: 2,
+                  padding: "9px 0",
+                  borderRadius: 10,
+                  border: "none",
+                  background: !newAptName.trim() || aptActionLoading ? "#d1d5db" : "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                  color: "white",
+                  fontWeight: 700,
+                  fontSize: "0.85rem",
+                  cursor: !newAptName.trim() || aptActionLoading ? "not-allowed" : "pointer",
+                }}
               >
-                ✕
+                {aptActionLoading ? "Creating…" : "Create Apartment"}
               </button>
             </div>
           </div>
-          )
-        ) : !newApartment && (
+        ) : (
           <div ref={aptComboRef} style={{ position: "relative" }}>
             <input
               value={aptSearch}
-              onChange={(e) => {
-                setAptSearch(e.target.value);
-                setEditingCurrentApt(false);
-                setAptDropdownOpen(true);
-              }}
+              onChange={(e) => { setAptSearch(e.target.value); setAptDropdownOpen(true); }}
               onFocus={() => setAptDropdownOpen(true)}
-              placeholder="Search apartments..."
-              autoFocus={!!currentProfile.apartment === false}
-              style={inputStyle}
+              placeholder="Search or create an apartment to join…"
+              disabled={aptActionLoading}
+              style={{ ...inputStyle, opacity: aptActionLoading ? 0.6 : 1 }}
             />
+            {aptActionLoading && (
+              <div style={{ fontSize: "0.8rem", color: "#059669", marginTop: 4, fontWeight: 600 }}>
+                Sending request…
+              </div>
+            )}
             {aptDropdownOpen && aptSearch.trim() && (
               <div style={{
                 position: "absolute",
@@ -444,57 +496,115 @@ export default function ProfileEditor({
                 overflowY: "auto",
                 boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
               }}>
-                {filteredApts.map((apt) => (
-                  <div
-                    key={apt.id}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      setSelectedApartmentId(apt.id);
-                      setAptSearch(apt.name);
-                      setAptDropdownOpen(false);
-                    }}
-                    style={{ padding: "10px 16px", cursor: "pointer", borderBottom: "1px solid #f3f4f6" }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = "#f9fafb")}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = "white")}
-                  >
-                    <span style={{ fontWeight: 700, color: "#111827" }}>{apt.name}</span>
-                    <span style={{ color: "#9ca3af", fontSize: "0.85rem" }}> — {apt.address}</span>
-                  </div>
-                ))}
+                {apartments
+                  .filter((a) => `${a.name} ${a.address}`.toLowerCase().includes(aptSearch.toLowerCase()))
+                  .map((apt) => (
+                    <div
+                      key={apt.id}
+                      onMouseDown={async (e) => {
+                        e.preventDefault();
+                        setAptDropdownOpen(false);
+                        setAptSearch("");
+                        setAptActionLoading(true);
+                        try {
+                          await requestToJoinApartment(userId, apt.id, `${currentProfile.first_name} ${currentProfile.last_name}`.trim());
+                          onProfileChanged?.();
+                        } finally {
+                          setAptActionLoading(false);
+                        }
+                      }}
+                      style={{ padding: "10px 16px", cursor: "pointer", borderBottom: "1px solid #f3f4f6" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "#f0fdf4")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "white")}
+                    >
+                      <div style={{ fontWeight: 700, color: "#111827" }}>{apt.name}</div>
+                      {apt.address && <div style={{ color: "#9ca3af", fontSize: "0.8rem" }}>{apt.address}</div>}
+                      <div style={{ color: "#059669", fontSize: "0.75rem", fontWeight: 600, marginTop: 2 }}>Request to Join →</div>
+                    </div>
+                  ))}
                 <div
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    setNewApartment({ name: aptSearch.trim(), address: "" });
-                    setSelectedApartmentId("");
                     setAptDropdownOpen(false);
+                    setAptSearch("");
+                    setCreatingNewApt(true);
+                    setNewAptName(aptSearch.trim());
+                    setNewAptAddress("");
+                    setNewAptUnit("");
+                    setAddressSuggestions([]);
                   }}
-                  style={{ padding: "10px 16px", cursor: "pointer", color: "#2563eb", fontWeight: 700 }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = "#f9fafb")}
+                  style={{ padding: "10px 16px", cursor: "pointer", color: "#2563eb", fontWeight: 700, fontSize: "0.9rem" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "#f0f9ff")}
                   onMouseLeave={(e) => (e.currentTarget.style.background = "white")}
                 >
-                  + Create New Apartment
+                  + Create "{aptSearch.trim()}"
                 </div>
               </div>
             )}
           </div>
         )}
 
-        {newApartment && (
-          <>
-            <input
-              placeholder="Apartment name *"
-              value={newApartment.name}
-              onChange={(e) => setNewApartment({ ...newApartment, name: e.target.value })}
-              style={inputStyle}
-            />
-            <AddressSearch
-              value={newApartment.address}
-              onChange={(v) => setNewApartment({ ...newApartment, address: v })}
-              onSelect={(addr) => setNewApartment({ ...newApartment, address: addr })}
-              placeholder="Address (start typing for suggestions…)"
-              style={inputStyle}
-            />
-          </>
+        {aptInvites.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ fontWeight: 700, color: "#047857", fontSize: "0.85rem", textAlign: "center" }}>
+              Apartment Invitations
+            </div>
+            {aptInvites.map((invite) => (
+              <div
+                key={invite.aptId}
+                style={{
+                  background: "#f0fdf4",
+                  border: "2px solid #bbf7d0",
+                  borderRadius: 14,
+                  padding: "14px 16px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  flexWrap: "wrap",
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 800, color: "#047857", fontSize: "0.95rem" }}>{invite.aptName}</div>
+                  <div style={{ color: "#6b7280", fontSize: "0.8rem" }}>Invited by {invite.invitedByName}</div>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => onAcceptInvite?.(invite)}
+                    style={{
+                      padding: "7px 18px",
+                      borderRadius: 10,
+                      border: "none",
+                      background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                      color: "white",
+                      fontWeight: 700,
+                      fontSize: "0.85rem",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Accept
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDeclineInvite?.(invite)}
+                    style={{
+                      padding: "7px 18px",
+                      borderRadius: 10,
+                      border: "1px solid #d1d5db",
+                      background: "white",
+                      color: "#374151",
+                      fontWeight: 700,
+                      fontSize: "0.85rem",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Decline
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
 
         <SectionTitle text="This Shabbat's Status" />

@@ -3,10 +3,10 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { ref, get, set, remove, onValue } from "firebase/database";
 import { rtdb } from "../firebaseClient";
-import { fetchAllUsers, fetchAllApartments, getAllergenCounts } from "../utils";
+import { fetchAllUsers, fetchAllApartments, fetchAddressSuggestions, getAllergenCounts } from "../utils";
 import { generateMealInviteUrl } from "../inviteService";
 import { createMeal } from "../index";
-import { createOTEvent, requestOTNourishment, cancelOTEvent, cancelOTReservation } from "../onetableService";
+import { createOTEvent, updateOTEvent, requestOTNourishment, cancelOTEvent, cancelOTReservation } from "../onetableService";
 import type { User } from "firebase/auth";
 import type { Meal, MealParticipant, UserWithId, Apartment } from "../types";
 import ClickableUserName from "./ClickableUserName";
@@ -187,6 +187,19 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const userComboRef = useRef<HTMLDivElement>(null);
 
+  // Searchable combobox for host apartment selection
+  const [aptSearch, setAptSearch] = useState("");
+  const [aptDropdownOpen, setAptDropdownOpen] = useState(false);
+  const aptComboRef = useRef<HTMLDivElement>(null);
+
+  // Address autocomplete for custom location field
+  const [locationBase, setLocationBase] = useState("");
+  const [locationUnit, setLocationUnit] = useState("");
+  const [locationSuggestions, setLocationSuggestions] = useState<string[]>([]);
+  const [locationDropdownOpen, setLocationDropdownOpen] = useState(false);
+  const locationComboRef = useRef<HTMLDivElement>(null);
+  const locationInitialized = useRef(false);
+
   // Ref for auto-scrolling messages to bottom
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -326,6 +339,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         messages: mealData.messages || {},
         onetable_event_id: mealData.onetable_event_id,
         onetable_event_uuid: mealData.onetable_event_uuid,
+        onetable_description: mealData.onetable_description,
         onetable_nourishment: mealData.onetable_nourishment,
       };
 
@@ -385,6 +399,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         messages: mealData.messages || {},
         onetable_event_id: mealData.onetable_event_id,
         onetable_event_uuid: mealData.onetable_event_uuid,
+        onetable_description: mealData.onetable_description,
         onetable_nourishment: mealData.onetable_nourishment,
       };
 
@@ -394,16 +409,44 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     return () => unsubscribe();
   }, [mealId, isCreateMode]);
 
-  // Close participant combobox dropdown on outside click
+  // Close combobox dropdowns on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (userComboRef.current && !userComboRef.current.contains(e.target as Node)) {
         setUserDropdownOpen(false);
       }
+      if (aptComboRef.current && !aptComboRef.current.contains(e.target as Node)) {
+        setAptDropdownOpen(false);
+      }
+      if (locationComboRef.current && !locationComboRef.current.contains(e.target as Node)) {
+        setLocationDropdownOpen(false);
+      }
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
+
+  // Initialize locationBase from meal.location once when meal first loads
+  useEffect(() => {
+    if (meal && !locationInitialized.current) {
+      locationInitialized.current = true;
+      setLocationBase(meal.location || "");
+    }
+  }, [meal]);
+
+  // Debounced address autocomplete for custom location field
+  useEffect(() => {
+    const q = locationBase.trim();
+    if (!q || q.length < 3) { setLocationSuggestions([]); return; }
+    const timeout = setTimeout(async () => {
+      try {
+        const labels = await fetchAddressSuggestions(q);
+        setLocationSuggestions(labels);
+        if (labels.length > 0) setLocationDropdownOpen(true);
+      } catch {}
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [locationBase]);
 
   // Jump to bottom instantly when switching to messages tab
   useEffect(() => {
@@ -780,6 +823,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
             if (otResult) {
               await set(ref(rtdb, `meal_events/${newMealId}/onetable_event_id`), otResult.eventId);
               await set(ref(rtdb, `meal_events/${newMealId}/onetable_event_uuid`), otResult.eventUuid);
+              await set(ref(rtdb, `meal_events/${newMealId}/onetable_description`), otDescription);
               if (otNourishment && otDateChecks.canNourish) {
                 await requestOTNourishment(otToken, otResult.eventId);
                 await set(ref(rtdb, `meal_events/${newMealId}/onetable_nourishment`), true);
@@ -848,6 +892,27 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
             tag: `meal-time-${editId}`,
             data: { tab: "upcoming", mealId: editId },
           }, "meal_updates");
+        }
+
+        // Sync changes to OneTable if the event is linked and time/location/title changed
+        if (
+          meal.onetable_event_id &&
+          otToken &&
+          meal.onetable_description &&
+          originalMeal &&
+          (meal.datetime !== originalMeal.datetime ||
+            meal.location !== originalMeal.location ||
+            meal.host_apartment_id !== originalMeal.host_apartment_id ||
+            meal.title !== originalMeal.title)
+        ) {
+          const aptAddress = apartments.find((a) => a.id === meal.host_apartment_id)?.address || "";
+          updateOTEvent(
+            otToken,
+            meal.onetable_event_id,
+            { full_address: meal.location?.trim() || aptAddress, lat: otLat, lng: otLng },
+            meal,
+            meal.onetable_description
+          ).catch((err) => console.error("[OT] updateEvent failed silently:", err));
         }
 
         if (originalMeal && meal.location !== originalMeal.location) {
@@ -1034,6 +1099,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
       if (otResult) {
         await set(ref(rtdb, `meal_events/${mealId}/onetable_event_id`), otResult.eventId);
         await set(ref(rtdb, `meal_events/${mealId}/onetable_event_uuid`), otResult.eventUuid);
+        await set(ref(rtdb, `meal_events/${mealId}/onetable_description`), otDescription);
         if (otNourishment) {
           await requestOTNourishment(otToken, otResult.eventId);
           await set(ref(rtdb, `meal_events/${mealId}/onetable_nourishment`), true);
@@ -1073,6 +1139,18 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
       return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
     });
   }, [users, meal, friendSet]);
+
+  // Apartments filtered by search text, user's own apartment first
+  const filteredApartments = useMemo(() => {
+    const q = aptSearch.toLowerCase();
+    const list = apartments.filter((a) => !q || `${a.name} ${a.address}`.toLowerCase().includes(q));
+    const ownAptId = users.find((u) => u.id === currentUserId)?.apartment || "";
+    return list.sort((a, b) => {
+      if (a.id === ownAptId) return -1;
+      if (b.id === ownAptId) return 1;
+      return a.name.localeCompare(b.name);
+    });
+  }, [apartments, aptSearch, users, currentUserId]);
 
   // Filtered users for the combobox dropdown — empty until something is typed
   const filteredComboUsers = useMemo(() => {
@@ -1235,29 +1313,105 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                 <label style={{ display: "block", marginBottom: 8, fontWeight: 700, color: "#374151", fontSize: "0.9rem" }}>
                   Host Apartment {isCreateMode && <span style={{ color: "#ef4444" }}>*</span>}
                 </label>
-                <select
-                  value={meal.host_apartment_id}
-                  onChange={(e) =>
-                    isHost && !isPastMeal && setMeal((prev) => prev && { ...prev, host_apartment_id: e.target.value })
-                  }
-                  disabled={!isHost || isPastMeal}
-                  style={{
+                {!isHost || isPastMeal ? (
+                  <div style={{
                     padding: "12px 16px",
                     borderRadius: 12,
                     border: "2px solid #d1d5db",
-                    width: "100%",
-                    fontWeight: 600,
+                    fontWeight: 700,
+                    color: "#047857",
+                    background: "#f9fafb",
                     fontSize: "1rem",
                     fontFamily: "Inter, sans-serif",
-                  }}
-                >
-                  <option value="">-- Select host apartment --</option>
-                  {apartments.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name} — {a.address}
-                    </option>
-                  ))}
-                </select>
+                  }}>
+                    {apartments.find((a) => a.id === meal.host_apartment_id)?.name || "—"}
+                  </div>
+                ) : (
+                  <div ref={aptComboRef} style={{ position: "relative" }}>
+                    <input
+                      value={aptDropdownOpen ? aptSearch : (apartments.find((a) => a.id === meal.host_apartment_id)?.name || "")}
+                      onChange={(e) => { setAptSearch(e.target.value); setAptDropdownOpen(true); }}
+                      onFocus={() => {
+                        const apt = apartments.find((a) => a.id === meal.host_apartment_id);
+                        setAptSearch(apt?.name || "");
+                        setAptDropdownOpen(true);
+                      }}
+                      placeholder="Search for an apartment…"
+                      style={{
+                        padding: "12px 16px",
+                        borderRadius: 12,
+                        border: "2px solid #d1d5db",
+                        width: "100%",
+                        fontWeight: 700,
+                        fontSize: "1rem",
+                        fontFamily: "Inter, sans-serif",
+                        color: meal.host_apartment_id ? "#047857" : "#374151",
+                        boxSizing: "border-box" as const,
+                      }}
+                    />
+                    {aptDropdownOpen && (
+                      <div style={{
+                        position: "absolute",
+                        top: "calc(100% + 4px)",
+                        left: 0,
+                        right: 0,
+                        background: "white",
+                        border: "2px solid #e5e7eb",
+                        borderRadius: 12,
+                        zIndex: 300,
+                        maxHeight: 260,
+                        overflowY: "auto",
+                        boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+                      }}>
+                        {filteredApartments.length === 0 ? (
+                          <div style={{ padding: "12px 16px", color: "#9ca3af", fontSize: "0.9rem", fontWeight: 600 }}>
+                            No apartments found
+                          </div>
+                        ) : filteredApartments.map((apt) => {
+                          const isOwn = apt.id === (users.find((u) => u.id === currentUserId)?.apartment || "");
+                          const isSelected = apt.id === meal.host_apartment_id;
+                          return (
+                            <div
+                              key={apt.id}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setMeal((prev) => prev && { ...prev, host_apartment_id: apt.id });
+                                setAptSearch(apt.name);
+                                setAptDropdownOpen(false);
+                              }}
+                              style={{
+                                padding: "12px 16px",
+                                cursor: "pointer",
+                                borderBottom: "1px solid #f3f4f6",
+                                background: isSelected ? "#f0fdf4" : "white",
+                              }}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = "#f0fdf4")}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = isSelected ? "#f0fdf4" : "white")}
+                            >
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <span style={{ fontWeight: 800, color: "#047857", fontSize: "0.95rem" }}>{apt.name}</span>
+                                {isOwn && (
+                                  <span style={{
+                                    fontSize: "0.7rem",
+                                    fontWeight: 700,
+                                    background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                                    color: "white",
+                                    padding: "2px 8px",
+                                    borderRadius: 20,
+                                  }}>Your Apartment</span>
+                                )}
+                                {isSelected && (
+                                  <span style={{ fontSize: "0.75rem", color: "#10b981", fontWeight: 700, marginLeft: "auto" }}>✓</span>
+                                )}
+                              </div>
+                              {apt.address && <div style={{ color: "#9ca3af", fontSize: "0.8rem", marginTop: 2 }}>{apt.address}</div>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1267,12 +1421,75 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                 <label style={{ display: "block", marginBottom: 8, fontWeight: 700, color: "#374151", fontSize: "0.9rem" }}>
                   📍 Custom Location <span style={{ fontWeight: 400, color: "#9ca3af" }}>(if different from host apartment)</span>
                 </label>
+                <div ref={locationComboRef} style={{ position: "relative" }}>
+                  <input
+                    value={locationBase}
+                    onChange={(e) => {
+                      if (!isHost || isPastMeal) return;
+                      const base = e.target.value;
+                      setLocationBase(base);
+                      setMeal((prev) => prev && { ...prev, location: locationUnit.trim() ? `${base}, ${locationUnit.trim()}` : base });
+                    }}
+                    onFocus={() => { if (locationSuggestions.length > 0) setLocationDropdownOpen(true); }}
+                    placeholder="Street address"
+                    disabled={!isHost || isPastMeal}
+                    style={{
+                      padding: "12px 16px",
+                      borderRadius: 12,
+                      border: "2px solid #d1d5db",
+                      width: "100%",
+                      fontWeight: 600,
+                      fontSize: "1rem",
+                      fontFamily: "Inter, sans-serif",
+                      boxSizing: "border-box" as const,
+                    }}
+                  />
+                  {locationDropdownOpen && locationSuggestions.length > 0 && (
+                    <div style={{
+                      position: "absolute",
+                      top: "calc(100% + 4px)",
+                      left: 0,
+                      right: 0,
+                      background: "white",
+                      border: "2px solid #e5e7eb",
+                      borderRadius: 12,
+                      zIndex: 300,
+                      maxHeight: 220,
+                      overflowY: "auto",
+                      boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+                    }}>
+                      {locationSuggestions.map((label) => (
+                        <div
+                          key={label}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setLocationBase(label);
+                            setMeal((prev) => prev && { ...prev, location: locationUnit.trim() ? `${label}, ${locationUnit.trim()}` : label });
+                            setLocationDropdownOpen(false);
+                            setLocationSuggestions([]);
+                          }}
+                          style={{ padding: "10px 16px", cursor: "pointer", borderBottom: "1px solid #f3f4f6", fontWeight: 600, fontSize: "0.9rem", color: "#374151" }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = "#f9fafb")}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = "white")}
+                        >
+                          {label}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <input
-                  value={meal.location || ""}
-                  onChange={(e) => isHost && !isPastMeal && setMeal((prev) => prev && { ...prev, location: e.target.value })}
-                  placeholder="e.g., 123 Main St, Apt 4B"
+                  value={locationUnit}
+                  onChange={(e) => {
+                    if (!isHost || isPastMeal) return;
+                    const unit = e.target.value;
+                    setLocationUnit(unit);
+                    setMeal((prev) => prev && { ...prev, location: unit.trim() ? `${locationBase}, ${unit.trim()}` : locationBase });
+                  }}
                   disabled={!isHost || isPastMeal}
+                  placeholder="Apt / Unit (optional)"
                   style={{
+                    marginTop: 8,
                     padding: "12px 16px",
                     borderRadius: 12,
                     border: "2px solid #d1d5db",
@@ -1280,6 +1497,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                     fontWeight: 600,
                     fontSize: "1rem",
                     fontFamily: "Inter, sans-serif",
+                    boxSizing: "border-box" as const,
                   }}
                 />
               </div>
@@ -2200,8 +2418,28 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           </div>
         )}
 
-        {/* OneTable section — edit mode (info tab only) */}
-        {activeTab === "info" && !isCreateMode && otToken && isHost && (
+        {/* OneTable — past meal: read-only link (visible to all participants) */}
+        {activeTab === "info" && !isCreateMode && isPastMeal && meal.onetable_event_id && (
+          <div style={{ marginTop: 24, padding: "14px 18px", borderRadius: 14, border: "2px solid #fb923c", background: "#fff7ed" }}>
+            <div style={{ fontWeight: 800, color: "#9a3412", fontSize: "0.95rem" }}>🔗 OneTable Event</div>
+            <a
+              href={meal.onetable_event_uuid
+                ? `https://dinners.onetable.org/events/${meal.title.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}/${meal.onetable_event_uuid}/details`
+                : `https://dinners.onetable.org/events/${meal.onetable_event_id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontSize: "0.82rem", color: "#ea580c", marginTop: 4, display: "inline-block" }}
+            >
+              View on OneTable →
+            </a>
+            {meal.onetable_nourishment && (
+              <div style={{ fontSize: "0.8rem", color: "#6b7280", marginTop: 2 }}>Nourishment was requested</div>
+            )}
+          </div>
+        )}
+
+        {/* OneTable — upcoming meal: full management (hosts only) */}
+        {activeTab === "info" && !isCreateMode && !isPastMeal && otToken && isHost && (
           <div
             style={{
               marginTop: 24,
@@ -2272,6 +2510,11 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                 {meal?.datetime && otDateChecks.isFriday && !otDateChecks.canSync && (
                   <div style={{ fontSize: "0.82rem", color: "#ef4444", fontWeight: 600, marginTop: 8 }}>
                     ⚠ Past the Tuesday deadline — OneTable sync is no longer available
+                  </div>
+                )}
+                {meal?.datetime && otDateChecks.isFriday && otDateChecks.canSync && otWeekConflict && (
+                  <div style={{ fontSize: "0.82rem", color: "#ef4444", fontWeight: 600, marginTop: 8 }}>
+                    ⚠ You already have a OneTable meal this week — only one per week allowed
                   </div>
                 )}
 
