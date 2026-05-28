@@ -195,6 +195,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
   // Address autocomplete for custom location field
   const [locationBase, setLocationBase] = useState("");
   const [locationUnit, setLocationUnit] = useState("");
+  const [showCustomLocation, setShowCustomLocation] = useState(false);
   const [locationSuggestions, setLocationSuggestions] = useState<string[]>([]);
   const [locationDropdownOpen, setLocationDropdownOpen] = useState(false);
   const locationComboRef = useRef<HTMLDivElement>(null);
@@ -431,6 +432,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     if (meal && !locationInitialized.current) {
       locationInitialized.current = true;
       setLocationBase(meal.location || "");
+      if (meal.location) setShowCustomLocation(true);
     }
   }, [meal]);
 
@@ -1416,90 +1418,124 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
             </div>
 
             {/* Optional custom location */}
-            {(isHost || meal.location) && !isPastMeal && (
+            {isHost && !isPastMeal && (
               <div style={{ marginTop: 12 }}>
-                <label style={{ display: "block", marginBottom: 8, fontWeight: 700, color: "#374151", fontSize: "0.9rem" }}>
-                  📍 Custom Location <span style={{ fontWeight: 400, color: "#9ca3af" }}>(if different from host apartment)</span>
-                </label>
-                <div ref={locationComboRef} style={{ position: "relative" }}>
-                  <input
-                    value={locationBase}
-                    onChange={(e) => {
-                      if (!isHost || isPastMeal) return;
-                      const base = e.target.value;
-                      setLocationBase(base);
-                      setMeal((prev) => prev && { ...prev, location: locationUnit.trim() ? `${base}, ${locationUnit.trim()}` : base });
-                    }}
-                    onFocus={() => { if (locationSuggestions.length > 0) setLocationDropdownOpen(true); }}
-                    placeholder="Street address"
-                    disabled={!isHost || isPastMeal}
+                {!showCustomLocation ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomLocation(true)}
                     style={{
-                      padding: "12px 16px",
-                      borderRadius: 12,
-                      border: "2px solid #d1d5db",
-                      width: "100%",
+                      background: "none",
+                      border: "none",
+                      color: "#6b7280",
+                      fontSize: "0.85rem",
                       fontWeight: 600,
-                      fontSize: "1rem",
+                      cursor: "pointer",
+                      padding: 0,
                       fontFamily: "Inter, sans-serif",
-                      boxSizing: "border-box" as const,
+                      textDecoration: "underline",
                     }}
-                  />
-                  {locationDropdownOpen && locationSuggestions.length > 0 && (
-                    <div style={{
-                      position: "absolute",
-                      top: "calc(100% + 4px)",
-                      left: 0,
-                      right: 0,
-                      background: "white",
-                      border: "2px solid #e5e7eb",
-                      borderRadius: 12,
-                      zIndex: 300,
-                      maxHeight: 220,
-                      overflowY: "auto",
-                      boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
-                    }}>
-                      {locationSuggestions.map((label) => (
-                        <div
-                          key={label}
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            setLocationBase(label);
-                            setMeal((prev) => prev && { ...prev, location: locationUnit.trim() ? `${label}, ${locationUnit.trim()}` : label });
-                            setLocationDropdownOpen(false);
-                            setLocationSuggestions([]);
-                          }}
-                          style={{ padding: "10px 16px", cursor: "pointer", borderBottom: "1px solid #f3f4f6", fontWeight: 600, fontSize: "0.9rem", color: "#374151" }}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = "#f9fafb")}
-                          onMouseLeave={(e) => (e.currentTarget.style.background = "white")}
-                        >
-                          {label}
-                        </div>
-                      ))}
+                  >
+                    + Add custom location
+                  </button>
+                ) : (
+                  <>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                      <label style={{ fontWeight: 700, color: "#374151", fontSize: "0.9rem" }}>
+                        📍 Custom Location <span style={{ fontWeight: 400, color: "#9ca3af" }}>(if different from host apartment)</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCustomLocation(false);
+                          setLocationBase("");
+                          setLocationUnit("");
+                          setLocationSuggestions([]);
+                          setMeal((prev) => prev && { ...prev, location: "" });
+                        }}
+                        style={{ background: "none", border: "none", color: "#9ca3af", fontSize: "0.85rem", cursor: "pointer", fontFamily: "Inter, sans-serif" }}
+                      >
+                        Remove
+                      </button>
                     </div>
-                  )}
-                </div>
-                <input
-                  value={locationUnit}
-                  onChange={(e) => {
-                    if (!isHost || isPastMeal) return;
-                    const unit = e.target.value;
-                    setLocationUnit(unit);
-                    setMeal((prev) => prev && { ...prev, location: unit.trim() ? `${locationBase}, ${unit.trim()}` : locationBase });
-                  }}
-                  disabled={!isHost || isPastMeal}
-                  placeholder="Apt / Unit (optional)"
-                  style={{
-                    marginTop: 8,
-                    padding: "12px 16px",
-                    borderRadius: 12,
-                    border: "2px solid #d1d5db",
-                    width: "100%",
-                    fontWeight: 600,
-                    fontSize: "1rem",
-                    fontFamily: "Inter, sans-serif",
-                    boxSizing: "border-box" as const,
-                  }}
-                />
+                    <div ref={locationComboRef} style={{ position: "relative" }}>
+                      <input
+                        value={locationBase}
+                        onChange={(e) => {
+                          const base = e.target.value;
+                          setLocationBase(base);
+                          setMeal((prev) => prev && { ...prev, location: locationUnit.trim() ? `${base}, ${locationUnit.trim()}` : base });
+                        }}
+                        onFocus={() => { if (locationSuggestions.length > 0) setLocationDropdownOpen(true); }}
+                        placeholder="Street address"
+                        autoFocus
+                        style={{
+                          padding: "12px 16px",
+                          borderRadius: 12,
+                          border: "2px solid #d1d5db",
+                          width: "100%",
+                          fontWeight: 600,
+                          fontSize: "1rem",
+                          fontFamily: "Inter, sans-serif",
+                          boxSizing: "border-box" as const,
+                        }}
+                      />
+                      {locationDropdownOpen && locationSuggestions.length > 0 && (
+                        <div style={{
+                          position: "absolute",
+                          top: "calc(100% + 4px)",
+                          left: 0,
+                          right: 0,
+                          background: "white",
+                          border: "2px solid #e5e7eb",
+                          borderRadius: 12,
+                          zIndex: 300,
+                          maxHeight: 220,
+                          overflowY: "auto",
+                          boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+                        }}>
+                          {locationSuggestions.map((label) => (
+                            <div
+                              key={label}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setLocationBase(label);
+                                setMeal((prev) => prev && { ...prev, location: locationUnit.trim() ? `${label}, ${locationUnit.trim()}` : label });
+                                setLocationDropdownOpen(false);
+                                setLocationSuggestions([]);
+                              }}
+                              style={{ padding: "10px 16px", cursor: "pointer", borderBottom: "1px solid #f3f4f6", fontWeight: 600, fontSize: "0.9rem", color: "#374151" }}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = "#f9fafb")}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = "white")}
+                            >
+                              {label}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <input
+                      value={locationUnit}
+                      onChange={(e) => {
+                        const unit = e.target.value;
+                        setLocationUnit(unit);
+                        setMeal((prev) => prev && { ...prev, location: unit.trim() ? `${locationBase}, ${unit.trim()}` : locationBase });
+                      }}
+                      placeholder="Apt / Unit (optional)"
+                      style={{
+                        marginTop: 8,
+                        padding: "12px 16px",
+                        borderRadius: 12,
+                        border: "2px solid #d1d5db",
+                        width: "100%",
+                        fontWeight: 600,
+                        fontSize: "1rem",
+                        fontFamily: "Inter, sans-serif",
+                        boxSizing: "border-box" as const,
+                      }}
+                    />
+                  </>
+                )}
               </div>
             )}
             {meal.location && isPastMeal && (
@@ -2306,7 +2342,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         )}
 
         {/* ── OneTable sync section (create mode, host with OT connected) ── */}
-        {isCreateMode && otToken && (
+        {activeTab === "info" && isCreateMode && otToken && (
           <div
             style={{
               marginTop: 24,
