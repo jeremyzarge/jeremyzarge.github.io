@@ -71,7 +71,8 @@ export async function createMeal(mealObj: Meal): Promise<string> {
   const id = Array.from(crypto.getRandomValues(new Uint8Array(7)))
     .map((b) => chars[b % chars.length])
     .join("");
-  await set(ref(rtdb, `meal_events/${id}`), mealObj);
+  const clean = Object.fromEntries(Object.entries(mealObj).filter(([, v]) => v !== undefined)) as Meal;
+  await set(ref(rtdb, `meal_events/${id}`), clean);
   return id;
 }
 

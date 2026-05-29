@@ -182,6 +182,21 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
       .catch(() => setOtWeekConflict(false));
   }, [meal?.datetime, currentUserId, mealId, otDateChecks.isFriday]);
 
+  // True only when all OT conditions are satisfied
+  const otSyncEligible = !!meal?.datetime && otDateChecks.isFriday && otDateChecks.canSync && !otWeekConflict;
+
+  // Uncheck sync if conditions are no longer met
+  useEffect(() => {
+    if (!otSyncEligible) setOtSyncEnabled(false);
+  }, [otSyncEligible]);
+
+  // Human-readable reason when not eligible (null when no date set yet)
+  const otIneligibleReason = !meal?.datetime ? null
+    : !otDateChecks.isFriday ? "Only available for Friday night meals"
+    : !otDateChecks.canSync ? "Past the Tuesday deadline for this meal"
+    : otWeekConflict ? "You already have a OneTable meal this week"
+    : null;
+
   // Searchable combobox for participant selection
   const [userSearch, setUserSearch] = useState("");
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
@@ -850,7 +865,11 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         if (onClose) onClose();
       } else {
         const editId = mealId!;
-        await set(ref(rtdb, `meal_events/${editId}`), meal);
+        // Firebase rejects undefined values — strip them before saving
+        const mealToSave = Object.fromEntries(
+          Object.entries(meal).filter(([, v]) => v !== undefined)
+        ) as Meal;
+        await set(ref(rtdb, `meal_events/${editId}`), mealToSave);
         setOriginalMeal(structuredClone(meal));
         alert("Meal updated!");
 
@@ -1559,7 +1578,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
               <DatePicker
                 selected={meal.datetime ? new Date(meal.datetime) : null}
                 onChange={(date) => {
-                  if (!isHost || isPastMeal || !date) return;
+                  if (!isHost || isPastMeal || !!meal.onetable_event_id || !date) return;
                   if (date <= new Date()) return;
                   setMeal((prev) => prev && { ...prev, datetime: date.toISOString() });
                 }}
@@ -1570,11 +1589,16 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                 minDate={new Date()}
                 filterTime={(time) => time > new Date()}
                 onChangeRaw={(e) => e.preventDefault()}
-                disabled={!isHost || isPastMeal}
+                disabled={!isHost || isPastMeal || !!meal.onetable_event_id}
                 placeholderText="Select date and time..."
                 wrapperClassName="datepicker-full-width"
                 className="datepicker-input"
               />
+              {meal.onetable_event_id && !isPastMeal && (
+                <div style={{ marginTop: 8, fontSize: "0.82rem", color: "#9a3412", fontWeight: 600 }}>
+                  Date is locked — this meal is synced with OneTable. Unsync or delete and recreate to change the date.
+                </div>
+              )}
             </div>
 
             <div
@@ -1904,7 +1928,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                         >
                           {!isPastMeal && (
                             <td style={{ padding: "12px 4px 12px 12px" }}>
-                              {isHost && (
+                              {isHost && userId !== currentUserId && (
                                 <button
                                   type="button"
                                   className="remove-btn"
@@ -2157,15 +2181,15 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
             {/* Invited (pending) participants section */}
             {invitedParticipants.length > 0 && !isPastMeal && (
               <div style={{ marginTop: 24 }}>
-                <h4 style={{ marginBottom: 16, fontWeight: 800, fontSize: "1.05rem", color: "#9ca3af" }}>
-                  Invited ({invitedParticipants.length})
+                <h4 style={{ marginBottom: 12, fontWeight: 800, fontSize: "1.05rem", color: "#9ca3af" }}>
+                  Pending ({invitedParticipants.length})
                 </h4>
                 <div
                   style={{
                     background: "#f9fafb",
                     borderRadius: 12,
                     border: "2px solid #e5e7eb",
-                    padding: 16,
+                    padding: "0 16px",
                   }}
                 >
                   {invitedParticipants.map(({ userId, user }) => (
@@ -2179,7 +2203,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                         borderBottom: "1px solid #e5e7eb",
                       }}
                     >
-                      <span style={{ fontWeight: 600, color: "#374151" }}>
+                      <span style={{ fontWeight: 600, color: "#6b7280" }}>
                         {onViewProfile && user ? (
                           <ClickableUserName
                             userId={userId}
@@ -2193,24 +2217,12 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                         )}
                       </span>
                       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                        <span
-                          style={{
-                            padding: "4px 12px",
-                            borderRadius: 20,
-                            background: "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)",
-                            color: "#92400e",
-                            fontSize: "0.8rem",
-                            fontWeight: 700,
-                          }}
-                        >
-                          Invited
-                        </span>
-                        {isHost && !isPastMeal && (
+                        {isHost && userId !== currentUserId && (
                           <button
                             type="button"
                             onClick={() => removeParticipant(userId)}
                             style={{
-                              padding: "6px 12px",
+                              padding: "5px 12px",
                               borderRadius: 8,
                               border: "none",
                               background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
@@ -2348,43 +2360,34 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
               marginTop: 24,
               padding: 20,
               borderRadius: 14,
-              border: `2px solid ${otSyncEnabled ? "#fb923c" : "#e5e7eb"}`,
-              background: otSyncEnabled ? "#fff7ed" : "#f9fafb",
+              border: `2px solid ${otSyncEnabled && otSyncEligible ? "#fb923c" : "#e5e7eb"}`,
+              background: otSyncEnabled && otSyncEligible ? "#fff7ed" : "#f9fafb",
               transition: "all 0.2s ease",
+              opacity: otSyncEligible || !meal?.datetime ? 1 : 0.5,
             }}
           >
             <label
-              style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", userSelect: "none" }}
+              style={{ display: "flex", alignItems: "center", gap: 10, cursor: otSyncEligible || !meal?.datetime ? "pointer" : "not-allowed", userSelect: "none" }}
             >
               <input
                 type="checkbox"
                 checked={otSyncEnabled}
                 onChange={(e) => setOtSyncEnabled(e.target.checked)}
-                style={{ width: 18, height: 18, cursor: "pointer" }}
+                disabled={!otSyncEligible && !!meal?.datetime}
+                style={{ width: 18, height: 18, cursor: otSyncEligible || !meal?.datetime ? "pointer" : "not-allowed" }}
               />
               <span style={{ fontWeight: 800, fontSize: "1rem", color: "#9a3412" }}>
                 Sync to OneTable
               </span>
             </label>
 
-            {/* Date eligibility warnings */}
-            {meal?.datetime && !otDateChecks.isFriday && (
-              <div style={{ fontSize: "0.82rem", color: "#ef4444", fontWeight: 600, marginTop: 8 }}>
-                ⚠ OneTable events must be on Friday night
-              </div>
-            )}
-            {meal?.datetime && otDateChecks.isFriday && !otDateChecks.canSync && (
-              <div style={{ fontSize: "0.82rem", color: "#ef4444", fontWeight: 600, marginTop: 8 }}>
-                ⚠ Past the Tuesday deadline — OneTable sync is no longer available
-              </div>
-            )}
-            {meal?.datetime && otDateChecks.isFriday && otDateChecks.canSync && otWeekConflict && (
-              <div style={{ fontSize: "0.82rem", color: "#ef4444", fontWeight: 600, marginTop: 8 }}>
-                ⚠ You already have a OneTable meal this week — only one per week allowed
+            {otIneligibleReason && (
+              <div style={{ fontSize: "0.82rem", color: "#9ca3af", fontWeight: 600, marginTop: 8 }}>
+                {otIneligibleReason}
               </div>
             )}
 
-            {otSyncEnabled && (
+            {otSyncEligible && otSyncEnabled && (
               <div style={{ marginTop: 16 }}>
                 {otGeocoding && (
                   <div style={{ fontSize: "0.82rem", color: "#9ca3af", marginBottom: 10 }}>
@@ -2484,6 +2487,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
               border: `2px solid ${meal.onetable_event_id ? "#fb923c" : "#e5e7eb"}`,
               background: meal.onetable_event_id ? "#fff7ed" : "#f9fafb",
               transition: "all 0.2s ease",
+              opacity: meal.onetable_event_id || otSyncEligible ? 1 : 0.5,
             }}
           >
             {meal.onetable_event_id ? (
@@ -2525,36 +2529,26 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
               </div>
             ) : (
               <>
-                <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", userSelect: "none" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: otSyncEligible ? "pointer" : "not-allowed", userSelect: "none" }}>
                   <input
                     type="checkbox"
                     checked={otSyncEnabled}
                     onChange={(e) => setOtSyncEnabled(e.target.checked)}
-                    style={{ width: 18, height: 18, cursor: "pointer" }}
+                    disabled={!otSyncEligible}
+                    style={{ width: 18, height: 18, cursor: otSyncEligible ? "pointer" : "not-allowed" }}
                   />
                   <span style={{ fontWeight: 800, fontSize: "1rem", color: "#9a3412" }}>
                     Sync to OneTable
                   </span>
                 </label>
 
-                {/* Date eligibility warnings */}
-                {meal?.datetime && !otDateChecks.isFriday && (
-                  <div style={{ fontSize: "0.82rem", color: "#ef4444", fontWeight: 600, marginTop: 8 }}>
-                    ⚠ OneTable events must be on Friday night
-                  </div>
-                )}
-                {meal?.datetime && otDateChecks.isFriday && !otDateChecks.canSync && (
-                  <div style={{ fontSize: "0.82rem", color: "#ef4444", fontWeight: 600, marginTop: 8 }}>
-                    ⚠ Past the Tuesday deadline — OneTable sync is no longer available
-                  </div>
-                )}
-                {meal?.datetime && otDateChecks.isFriday && otDateChecks.canSync && otWeekConflict && (
-                  <div style={{ fontSize: "0.82rem", color: "#ef4444", fontWeight: 600, marginTop: 8 }}>
-                    ⚠ You already have a OneTable meal this week — only one per week allowed
+                {otIneligibleReason && (
+                  <div style={{ fontSize: "0.82rem", color: "#9ca3af", fontWeight: 600, marginTop: 8 }}>
+                    {otIneligibleReason}
                   </div>
                 )}
 
-                {otSyncEnabled && (
+                {otSyncEligible && otSyncEnabled && (
                   <div style={{ marginTop: 16 }}>
                     {otGeocoding && (
                       <div style={{ fontSize: "0.82rem", color: "#9ca3af", marginBottom: 10 }}>
