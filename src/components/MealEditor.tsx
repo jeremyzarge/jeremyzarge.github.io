@@ -608,7 +608,11 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     if (!isCreateMode && mealId) {
       try {
         // Cancel OneTable reservation if the user has one
-        const reservationId = meal.onetable_reservations?.[currentUserId];
+        // Read fresh from DB in case local state is stale
+        const freshMealSnap = await get(ref(rtdb, `meal_events/${mealId}/onetable_reservations`));
+        const freshReservations = freshMealSnap.exists() ? freshMealSnap.val() : {};
+        const reservationId = freshReservations[currentUserId] ?? meal.onetable_reservations?.[currentUserId];
+
         if (reservationId) {
           const tokenSnap = await get(ref(rtdb, `users/${currentUserId}/onetable_token`));
           if (tokenSnap.exists()) {
@@ -885,7 +889,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         // Removed participants — cancel their OneTable reservations if any
         const removedIds = Object.keys(prevParticipants).filter((id) => !newParticipants[id] && id !== currentUserId);
         for (const removedId of removedIds) {
-          const reservationId = (originalMeal as any)?.onetable_reservations?.[removedId];
+          const reservationId = meal.onetable_reservations?.[removedId] ?? (originalMeal as any)?.onetable_reservations?.[removedId];
           if (reservationId) {
             const removedTokenSnap = await get(ref(rtdb, `users/${removedId}/onetable_token`));
             if (removedTokenSnap.exists()) {

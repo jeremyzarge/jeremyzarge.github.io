@@ -4,6 +4,7 @@ import { ref, get, set, remove, onValue } from "firebase/database";
 import type { User } from "firebase/auth";
 import type { Apartment, UserWithId, Meal, LegacyMeal } from "../types";
 import MealEditor from "./MealEditor";
+import { createOTReservation, acceptOTReservation, cancelOTReservation } from "../onetableService";
 
 interface MyMealsProps {
   myId: string;
@@ -133,6 +134,32 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
   const handleAcceptInvite = async (mealId: string) => {
     try {
       await set(ref(rtdb, `meal_events/${mealId}/participants/${myId}/accepted`), true);
+
+      const mealSnap = await get(ref(rtdb, `meal_events/${mealId}`));
+      if (mealSnap.exists()) {
+        const mealData = mealSnap.val();
+
+        if (mealData.onetable_event_id) {
+          const guestTokenSnap = await get(ref(rtdb, `users/${myId}/onetable_token`));
+          if (guestTokenSnap.exists()) {
+            const reservationId = await createOTReservation(guestTokenSnap.val(), mealData.onetable_event_id);
+            if (reservationId) {
+              await set(ref(rtdb, `meal_events/${mealId}/onetable_reservations/${myId}`), reservationId);
+              const hostIds = Object.entries(mealData.participants ?? {})
+                .filter(([id, p]: [string, any]) => p.role === "host" && id !== myId)
+                .map(([id]) => id);
+              for (const hostId of hostIds) {
+                const hostTokenSnap = await get(ref(rtdb, `users/${hostId}/onetable_token`));
+                if (hostTokenSnap.exists()) {
+                  await acceptOTReservation(hostTokenSnap.val(), reservationId);
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+
       // Reload meals to reflect change
       const snap = await get(ref(rtdb, "meal_events"));
       const data = snap.exists() ? snap.val() : {};
@@ -151,6 +178,19 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
     if (!window.confirm("Are you sure you want to reject this invitation?")) return;
 
     try {
+      const mealSnap = await get(ref(rtdb, `meal_events/${mealId}`));
+      if (mealSnap.exists()) {
+        const mealData = mealSnap.val();
+        const reservationId = mealData.onetable_reservations?.[myId];
+        if (reservationId) {
+          const tokenSnap = await get(ref(rtdb, `users/${myId}/onetable_token`));
+          if (tokenSnap.exists()) {
+            await cancelOTReservation(tokenSnap.val(), reservationId);
+            await remove(ref(rtdb, `meal_events/${mealId}/onetable_reservations/${myId}`));
+          }
+        }
+      }
+
       await remove(ref(rtdb, `meal_events/${mealId}/participants/${myId}`));
       // Reload meals to reflect change
       const snap = await get(ref(rtdb, "meal_events"));
