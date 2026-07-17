@@ -99,16 +99,17 @@ export default function ApartmentProfileView({
         const allMeals = mealsSnap.val() as Record<string, Meal>;
         const aptMeals: Array<{ id: string; title: string; datetime: string }> = [];
         for (const [mealId, meal] of Object.entries(allMeals)) {
-          if (meal.host_apartment_id === apartmentId) {
-            aptMeals.push({ id: mealId, title: meal.title || "Untitled", datetime: meal.datetime ?? "" });
-          }
+          if (meal.host_apartment_id !== apartmentId) continue;
+          const canSee = isMember || (!!currentUserId && !!meal.participants && currentUserId in meal.participants);
+          if (!canSee) continue;
+          aptMeals.push({ id: mealId, title: meal.title || "Untitled", datetime: meal.datetime ?? "" });
         }
         aptMeals.sort((a, b) => new Date(b.datetime).getTime() - new Date(a.datetime).getTime());
         setMeals(aptMeals);
       }
       setLoading(false);
     });
-  }, [apartmentId]);
+  }, [apartmentId, isMember, currentUserId]);
 
   // Real-time join requests and sent invites (members only)
   useEffect(() => {

@@ -1440,6 +1440,26 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
               </div>
             </div>
 
+            {apartments.find((a) => a.id === meal.host_apartment_id)?.address && (
+              <div style={{ marginTop: 16 }}>
+                <label style={{ display: "block", marginBottom: 8, fontWeight: 700, color: "#374151", fontSize: "0.9rem" }}>
+                  Address
+                </label>
+                <div style={{
+                  padding: "12px 16px",
+                  borderRadius: 12,
+                  border: "2px solid #d1d5db",
+                  fontWeight: 600,
+                  color: "#374151",
+                  background: "#f9fafb",
+                  fontSize: "1rem",
+                  fontFamily: "Inter, sans-serif",
+                }}>
+                  {apartments.find((a) => a.id === meal.host_apartment_id)?.address}
+                </div>
+              </div>
+            )}
+
             {/* Optional custom location */}
             {isHost && !isPastMeal && (
               <div style={{ marginTop: 12 }}>
