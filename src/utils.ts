@@ -6,24 +6,118 @@ import { ref, get } from "firebase/database";
 import { rtdb } from "./firebaseClient";
 import type { UserProfile, Apartment, UserWithId, Allergies, CanBring } from "./types";
 
-/** Fetch address suggestions from NYC Planning Labs GeoSearch, Manhattan only. */
+/**
+ * Call from a modal's backdrop-click / Cancel handler instead of `onClose` directly.
+ * If there are no unsaved changes, closes immediately. Otherwise prompts the user to
+ * either save (calling `onSave`, which is expected to close on success) or discard —
+ * asked as two separate confirms since `window.confirm` only offers one yes/no choice
+ * at a time. Choosing to keep the dialog open (canceling both prompts) leaves the modal
+ * open with the unsaved changes intact.
+ */
+export function attemptCloseWithUnsavedChanges(
+  hasChanges: boolean,
+  onSave: () => void,
+  onDiscard: () => void
+): void {
+  if (!hasChanges) {
+    onDiscard();
+    return;
+  }
+  const wantsToSave = window.confirm(
+    "You have unsaved changes. Press OK to save them, or Cancel to choose whether to discard them."
+  );
+  if (wantsToSave) {
+    onSave();
+    return;
+  }
+  if (window.confirm("Discard your unsaved changes and close without saving?")) {
+    onDiscard();
+  }
+}
+
+/** Food emoji and label mapping */
+export const foodDisplayMap: Record<string, { emoji: string; label: string }> = {
+  // Database food options
+  none: { emoji: "➖", label: "None" },
+  challah: { emoji: "🍞", label: "Challah" },
+  dessert: { emoji: "🍰", label: "Dessert" },
+  dips: { emoji: "🫕", label: "Dips" },
+  dip: { emoji: "🫕", label: "Dips" },
+  "grape juice": { emoji: "🍇", label: "Grape Juice" },
+  grapejuice: { emoji: "🍇", label: "Grape Juice" },
+  grape_juice: { emoji: "🍇", label: "Grape Juice" },
+  main: { emoji: "🍝", label: "Main" },
+  sides: { emoji: "🥔", label: "Sides" },
+  side: { emoji: "🥔", label: "Sides" },
+  vegetable: { emoji: "🥦", label: "Vegetable" },
+  vegetables: { emoji: "🥦", label: "Vegetables" },
+  // Profile food options (for compatibility)
+  drinks: { emoji: "🥤", label: "Drinks" },
+  drink: { emoji: "🥤", label: "Drinks" },
+  salad: { emoji: "🥗", label: "Salad" },
+  main_dish: { emoji: "🍝", label: "Main Dish" },
+  "main dish": { emoji: "🍝", label: "Main Dish" },
+  maindish: { emoji: "🍝", label: "Main Dish" },
+  snacks: { emoji: "🍿", label: "Snacks" },
+  snack: { emoji: "🍿", label: "Snacks" },
+  utensils: { emoji: "🍴", label: "Utensils" },
+  utensil: { emoji: "🍴", label: "Utensils" },
+};
+
+/** Format a food key into a display string with emoji */
+export const formatFood = (food: string): string => {
+  // Normalize: lowercase, trim, remove extra spaces
+  const normalizedKey = food.toLowerCase().trim();
+
+  // Try exact match first
+  if (foodDisplayMap[normalizedKey]) {
+    const mapped = foodDisplayMap[normalizedKey];
+    return `${mapped.emoji} ${mapped.label}`;
+  }
+
+  // Try with underscores replaced by spaces
+  const spacedKey = normalizedKey.replace(/_/g, " ");
+  if (foodDisplayMap[spacedKey]) {
+    const mapped = foodDisplayMap[spacedKey];
+    return `${mapped.emoji} ${mapped.label}`;
+  }
+
+  // Try with spaces replaced by underscores
+  const underscoredKey = normalizedKey.replace(/\s+/g, "_");
+  if (foodDisplayMap[underscoredKey]) {
+    const mapped = foodDisplayMap[underscoredKey];
+    return `${mapped.emoji} ${mapped.label}`;
+  }
+
+  // Try with all spaces/underscores removed (e.g., "maindish")
+  const compactKey = normalizedKey.replace(/[\s_-]+/g, "");
+  if (foodDisplayMap[compactKey]) {
+    const mapped = foodDisplayMap[compactKey];
+    return `${mapped.emoji} ${mapped.label}`;
+  }
+
+  // For unknown foods, capitalize nicely with generic emoji
+  const label = food
+    .split(/[_\s]+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+  return `🍽️ ${label}`;
+};
+
+/** Fetch address suggestions from Nominatim (OpenStreetMap), anywhere in the US. */
 export async function fetchAddressSuggestions(query: string): Promise<string[]> {
   if (!query || query.length < 3) return [];
   const res = await fetch(
-    `https://geosearch.planninglabs.nyc/v2/autocomplete?text=${encodeURIComponent(query)}&size=12`,
+    `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=us&limit=6`,
     { headers: { Accept: "application/json" } }
   );
   const data = await res.json();
-  return (data.features || [])
-    .filter((f: any) => f.properties?.borough === "Manhattan")
-    .slice(0, 6)
-    .map((f: any) => {
-      let label: string = f.properties?.label ?? "";
-      // Strip city/state/zip — cut at ", New York" first, then ", Manhattan" if still present
-      const nyIdx = label.indexOf(", New York");
-      if (nyIdx > 0) label = label.substring(0, nyIdx);
-      const manhIdx = label.indexOf(", Manhattan");
-      if (manhIdx > 0) label = label.substring(0, manhIdx);
+  return (data || [])
+    .map((r: any) => {
+      let label: string = r.display_name ?? "";
+      // Strip trailing ", United States" — country is implied
+      const usIdx = label.indexOf(", United States");
+      if (usIdx > 0) label = label.substring(0, usIdx);
       return label;
     })
     .filter(Boolean) as string[];
@@ -101,7 +195,7 @@ export function createDefaultCanBring(): CanBring {
     salad: false,
     main_dish: false,
     snacks: false,
-    sides: false,
+    side: false,
     utensils: false,
     custom: [],
   };

@@ -31,7 +31,7 @@ const foodLabels: Record<string, string> = {
   salad: "🥗 Salad",
   main_dish: "🍝 Main Dish",
   snacks: "🍿 Snacks",
-  sides: "🥔 Sides",
+  side: "🥔 Side",
   utensils: "🍴 Utensils",
 };
 

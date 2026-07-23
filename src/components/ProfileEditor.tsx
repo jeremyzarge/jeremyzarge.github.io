@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ref, set, get } from "firebase/database";
-import { fetchAllApartments, fetchAddressSuggestions, createDefaultAllergies, createDefaultCanBring } from "../utils";
+import { fetchAllApartments, fetchAddressSuggestions, createDefaultAllergies, createDefaultCanBring, attemptCloseWithUnsavedChanges } from "../utils";
 import { rtdb, createNumericApartmentId } from "../firebaseClient";
 import { createOrUpdateUserNumeric } from "../index";
 import { cancelJoinRequest, clearUserApartmentPending, requestToJoinApartment } from "../apartmentService";
@@ -51,6 +51,10 @@ export default function ProfileEditor({
   onAcceptInvite,
   onDeclineInvite,
 }: ProfileEditorProps) {
+  // Immutable snapshot of the profile as it was when this editor opened, for dirty-checking —
+  // independent of the `currentProfile` prop in case the parent re-renders with a new object.
+  const initialProfileRef = useRef(currentProfile);
+
   const [firstName, setFirstName] = useState(currentProfile.first_name || "");
   const [lastName, setLastName] = useState(currentProfile.last_name || "");
   const [submitting, setSubmitting] = useState(false);
@@ -107,7 +111,7 @@ export default function ProfileEditor({
     { key: "salad", label: "🥗 Salad" },
     { key: "main_dish", label: "🍝 Main Dish" },
     { key: "snacks", label: "🍿 Snacks" },
-    { key: "sides", label: "🥔 Sides" },
+    { key: "side", label: "🥔 Side" },
     { key: "utensils", label: "🍴 Utensils" },
   ];
 
@@ -210,8 +214,7 @@ export default function ProfileEditor({
     setAllergies((prev) => ({ ...prev, custom: prev.custom.filter((a) => a !== item) }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const doSave = async () => {
     if (isDisabled) return;
 
     setSubmitting(true);
@@ -240,7 +243,27 @@ export default function ProfileEditor({
     }
   };
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    doSave();
+  };
+
   const isDisabled = !firstName.trim() || !lastName.trim();
+
+  const initialProfile = initialProfileRef.current;
+  const hasChanges =
+    firstName.trim() !== (initialProfile.first_name || "") ||
+    lastName.trim() !== (initialProfile.last_name || "") ||
+    dinnerStatus !== (initialProfile.dinner_status ?? null) ||
+    lunchStatus !== (initialProfile.lunch_status ?? null) ||
+    JSON.stringify(canBring) !== JSON.stringify(
+      initialProfile.can_bring ? { ...initialProfile.can_bring, custom: initialProfile.can_bring.custom || [] } : createDefaultCanBring()
+    ) ||
+    JSON.stringify(allergies) !== JSON.stringify(
+      initialProfile.allergies ? { ...initialProfile.allergies, custom: initialProfile.allergies.custom || [] } : createDefaultAllergies()
+    );
+
+  const handleCancel = () => attemptCloseWithUnsavedChanges(hasChanges, doSave, onCancel);
 
   return (
     <>
@@ -907,7 +930,7 @@ export default function ProfileEditor({
         <div style={{ display: "flex", gap: 12, marginTop: 20 }}>
           <button
             type="button"
-            onClick={onCancel}
+            onClick={handleCancel}
             style={{
               flex: 1,
               padding: "16px 0",

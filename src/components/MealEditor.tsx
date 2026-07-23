@@ -1,85 +1,18 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
-import { ref, get, set, remove, onValue } from "firebase/database";
+import { ref, get, set, remove, update, onValue } from "firebase/database";
 import { rtdb } from "../firebaseClient";
-import { fetchAllUsers, fetchAllApartments, fetchAddressSuggestions, getAllergenCounts } from "../utils";
+import { fetchAllUsers, fetchAllApartments, fetchAddressSuggestions, getAllergenCounts, formatFood } from "../utils";
 import { generateMealInviteUrl } from "../inviteService";
 import { createMeal } from "../index";
 import { createOTEvent, updateOTEvent, requestOTNourishment, cancelOTEvent, cancelOTReservation } from "../onetableService";
 import type { User } from "firebase/auth";
-import type { Meal, MealParticipant, UserWithId, Apartment } from "../types";
+import type { Meal, MealParticipant, UserWithId, Apartment, FoodRequestItem } from "../types";
 import ClickableUserName from "./ClickableUserName";
 import { notifyUsers } from "../notifications";
-
-/** Food emoji and label mapping */
-const foodDisplayMap: Record<string, { emoji: string; label: string }> = {
-  // Database food options
-  none: { emoji: "➖", label: "None" },
-  challah: { emoji: "🍞", label: "Challah" },
-  dessert: { emoji: "🍰", label: "Dessert" },
-  dips: { emoji: "🫕", label: "Dips" },
-  dip: { emoji: "🫕", label: "Dips" },
-  "grape juice": { emoji: "🍇", label: "Grape Juice" },
-  grapejuice: { emoji: "🍇", label: "Grape Juice" },
-  grape_juice: { emoji: "🍇", label: "Grape Juice" },
-  main: { emoji: "🍝", label: "Main" },
-  sides: { emoji: "🥔", label: "Sides" },
-  side: { emoji: "🥔", label: "Sides" },
-  vegetable: { emoji: "🥦", label: "Vegetable" },
-  vegetables: { emoji: "🥦", label: "Vegetables" },
-  // Profile food options (for compatibility)
-  drinks: { emoji: "🥤", label: "Drinks" },
-  drink: { emoji: "🥤", label: "Drinks" },
-  salad: { emoji: "🥗", label: "Salad" },
-  main_dish: { emoji: "🍝", label: "Main Dish" },
-  "main dish": { emoji: "🍝", label: "Main Dish" },
-  maindish: { emoji: "🍝", label: "Main Dish" },
-  snacks: { emoji: "🍿", label: "Snacks" },
-  snack: { emoji: "🍿", label: "Snacks" },
-  utensils: { emoji: "🍴", label: "Utensils" },
-  utensil: { emoji: "🍴", label: "Utensils" },
-};
-
-/** Format a food key into a display string with emoji */
-const formatFood = (food: string): string => {
-  // Normalize: lowercase, trim, remove extra spaces
-  const normalizedKey = food.toLowerCase().trim();
-
-  // Try exact match first
-  if (foodDisplayMap[normalizedKey]) {
-    const mapped = foodDisplayMap[normalizedKey];
-    return `${mapped.emoji} ${mapped.label}`;
-  }
-
-  // Try with underscores replaced by spaces
-  const spacedKey = normalizedKey.replace(/_/g, " ");
-  if (foodDisplayMap[spacedKey]) {
-    const mapped = foodDisplayMap[spacedKey];
-    return `${mapped.emoji} ${mapped.label}`;
-  }
-
-  // Try with spaces replaced by underscores
-  const underscoredKey = normalizedKey.replace(/\s+/g, "_");
-  if (foodDisplayMap[underscoredKey]) {
-    const mapped = foodDisplayMap[underscoredKey];
-    return `${mapped.emoji} ${mapped.label}`;
-  }
-
-  // Try with all spaces/underscores removed (e.g., "maindish")
-  const compactKey = normalizedKey.replace(/[\s_-]+/g, "");
-  if (foodDisplayMap[compactKey]) {
-    const mapped = foodDisplayMap[compactKey];
-    return `${mapped.emoji} ${mapped.label}`;
-  }
-
-  // For unknown foods, capitalize nicely with generic emoji
-  const label = food
-    .split(/[_\s]+/)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .join(" ");
-  return `🍽️ ${label}`;
-};
+import FoodRequestsModal from "./FoodRequestsModal";
+import ViewFoodRequestsModal from "./ViewFoodRequestsModal";
 
 /** Deterministic color from user ID for message names */
 const nameColors = [
@@ -91,6 +24,20 @@ function getNameColor(userId: string): string {
   let hash = 0;
   for (let i = 0; i < userId.length; i++) hash = (hash * 31 + userId.charCodeAt(i)) | 0;
   return nameColors[Math.abs(hash) % nameColors.length];
+}
+
+/**
+ * Normalize raw `food_requests` data from RTDB into a clean array of FoodRequestItem.
+ * Firebase drops empty arrays on write, so a saved `food_requests: []` can come back as
+ * `undefined` — and a sparse array can come back as a plain object keyed by index.
+ */
+function sanitizeFoodRequests(raw: unknown): FoodRequestItem[] {
+  if (!raw) return [];
+  const arr = Array.isArray(raw) ? raw : Object.values(raw as Record<string, unknown>);
+  return (arr as any[]).filter(Boolean).map((it) => ({
+    food: it?.food ?? "",
+    quantity: typeof it?.quantity === "number" ? it.quantity : 0,
+  } as FoodRequestItem));
 }
 
 
@@ -138,6 +85,8 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<"info" | "participants" | "messages">("info");
+  const [showManageFoodRequests, setShowManageFoodRequests] = useState(false);
+  const [showViewFoodRequests, setShowViewFoodRequests] = useState(false);
 
   // For adding participants
   const [selectedUserId, setSelectedUserId] = useState("");
@@ -146,7 +95,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
   // OneTable sync
   const [otSyncEnabled, setOtSyncEnabled] = useState(false);
   const [otDescription, setOtDescription] = useState("");
-  const [otNourishment, setOtNourishment] = useState(false);
+  const [otNourishment, setOtNourishment] = useState(true);
   const [otToken, setOtToken] = useState<string | null>(null);
   const [otLat, setOtLat] = useState(0);
   const [otLng, setOtLng] = useState(0);
@@ -357,6 +306,8 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         onetable_event_uuid: mealData.onetable_event_uuid,
         onetable_description: mealData.onetable_description,
         onetable_nourishment: mealData.onetable_nourishment,
+        food_requests: sanitizeFoodRequests(mealData.food_requests),
+        food_requests_enforced: !!mealData.food_requests_enforced,
       };
 
       setMeal(normalizedMeal);
@@ -417,6 +368,8 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         onetable_event_uuid: mealData.onetable_event_uuid,
         onetable_description: mealData.onetable_description,
         onetable_nourishment: mealData.onetable_nourishment,
+        food_requests: sanitizeFoodRequests(mealData.food_requests),
+        food_requests_enforced: !!mealData.food_requests_enforced,
       };
 
       setMeal(normalizedMeal);
@@ -482,17 +435,17 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     setOtLat(0);
     setOtLng(0);
     setOtGeocoding(true);
-    // NYC GeoSearch: free, no API key, excellent NYC address data
+    // Nominatim (OpenStreetMap): free, no API key, covers anywhere in the US
     fetch(
-      `https://geosearch.planninglabs.nyc/v2/search?text=${encodeURIComponent(address)}&size=1`,
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&countrycodes=us&limit=1`,
       { headers: { Accept: "application/json" } }
     )
       .then((r) => r.json())
       .then((data) => {
-        const f = data.features?.[0];
+        const f = data?.[0];
         if (f) {
-          setOtLng(f.geometry.coordinates[0]);
-          setOtLat(f.geometry.coordinates[1]);
+          setOtLng(parseFloat(f.lon));
+          setOtLat(parseFloat(f.lat));
         }
       })
       .catch(() => {})
@@ -528,6 +481,53 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     if (!currentUserId) return null;
     return currentUserId;
   }, [currentUserId]);
+
+  // Whether the host has explicitly turned on enforcement for this meal's food requests.
+  const foodRequestsEnforced = useMemo(() => {
+    return !!meal?.food_requests_enforced && (meal?.food_requests?.length ?? 0) > 0;
+  }, [meal?.food_requests, meal?.food_requests_enforced]);
+
+  // Tally of current food selections per food key, so we know how much of each
+  // requested item's quantity is already spoken for.
+  const foodConsumption = useMemo(() => {
+    const counts: Record<string, Record<string, number>> = {};
+    if (!meal) return counts;
+    for (const [userId, p] of Object.entries(meal.participants)) {
+      const claims: string[] = [p.food, ...(p.additional_items ?? []).map((it) => it.food)];
+      for (const food of claims) {
+        if (food === "none" || food === "other") continue;
+        counts[food] ??= {};
+        counts[food][userId] = (counts[food][userId] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }, [meal]);
+
+  const foodConsumptionCount = useCallback((food: string, excludeUserId: string): number => {
+    const perUser = foodConsumption[food] ?? {};
+    return Object.entries(perUser).reduce((s, [uid, c]) => (uid === excludeUserId ? s : s + c), 0);
+  }, [foodConsumption]);
+
+  /**
+   * The list of food keys a participant may currently pick from, when food requests are
+   * enforced: any requested item with remaining quantity > 0, plus "none".
+   * Only meaningful when `foodRequestsEnforced` is true.
+   */
+  const getAllowedFoodsForParticipant = useCallback((userId: string): string[] => {
+    if (!meal) return ["none"];
+    const items = meal.food_requests ?? [];
+    const allowed = new Set<string>(["none"]);
+    for (const item of items) {
+      const remaining = item.quantity - foodConsumptionCount(item.food, userId);
+      if (remaining > 0) allowed.add(item.food);
+    }
+    return Array.from(allowed);
+  }, [meal, foodConsumptionCount]);
+
+  /** Whether a participant currently has any real (non-"none") food option — if not, "Other" opens up as a fallback. */
+  const hasRealFoodOptions = useCallback((userId: string): boolean => {
+    return getAllowedFoodsForParticipant(userId).some((f) => f !== "none");
+  }, [getAllowedFoodsForParticipant]);
 
   /**
    * Add a participant to the meal (host authorization required)
@@ -670,6 +670,21 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
   };
 
   /**
+   * Immediately persist a single participant's field(s) to Firebase (edit mode only —
+   * in create mode the meal doesn't exist in the DB yet, so there's nothing to write to
+   * until the initial "Create Meal" save). This is fire-and-forget: food selections
+   * shouldn't wait on — or get lost because someone never clicks — the big Save button.
+   */
+  const persistParticipantField = (userId: string, patch: Partial<MealParticipant>) => {
+    if (isCreateMode || !mealId) return;
+    const updates: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(patch)) {
+      updates[`meal_events/${mealId}/participants/${userId}/${key}`] = value;
+    }
+    update(ref(rtdb), updates).catch((err) => console.error("Failed to auto-save food selection:", err));
+  };
+
+  /**
    * Set food for a participant (hosts can edit all, guests can edit their own)
    */
   const setFoodForParticipant = (userId: string, food: string) => {
@@ -677,20 +692,23 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     // Allow if user is host OR if user is editing their own
     const canEdit = isHost || userId === currentUserNumericId;
     if (!canEdit) return;
+    if (foodRequestsEnforced && food !== "none") {
+      if (food === "other") {
+        if (hasRealFoodOptions(userId)) return; // real options exist — must pick from those instead
+      } else if (!getAllowedFoodsForParticipant(userId).includes(food)) {
+        return;
+      }
+    }
+    if (!meal.participants[userId]) return;
 
-    setMeal((prev) => {
-      if (!prev) return prev;
-      const participant = prev.participants[userId];
-      if (!participant) return prev;
-
-      return {
-        ...prev,
-        participants: {
-          ...prev.participants,
-          [userId]: { ...participant, food },
-        },
-      };
-    });
+    const apply = (m: Meal): Meal => {
+      const participant = m.participants[userId];
+      if (!participant) return m;
+      return { ...m, participants: { ...m.participants, [userId]: { ...participant, food } } };
+    };
+    setMeal((prev) => (prev ? apply(prev) : prev));
+    setOriginalMeal((prev) => (prev ? apply(prev) : prev));
+    persistParticipantField(userId, { food });
   };
 
   /**
@@ -701,91 +719,97 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     // Allow if user is host OR if user is editing their own
     const canEdit = isHost || userId === currentUserNumericId;
     if (!canEdit) return;
+    if (!meal.participants[userId]) return;
 
-    setMeal((prev) => {
-      if (!prev) return prev;
-      const participant = prev.participants[userId];
-      if (!participant) return prev;
-
-      return {
-        ...prev,
-        participants: {
-          ...prev.participants,
-          [userId]: { ...participant, specifics },
-        },
-      };
-    });
+    const apply = (m: Meal): Meal => {
+      const participant = m.participants[userId];
+      if (!participant) return m;
+      return { ...m, participants: { ...m.participants, [userId]: { ...participant, specifics } } };
+    };
+    setMeal((prev) => (prev ? apply(prev) : prev));
+    setOriginalMeal((prev) => (prev ? apply(prev) : prev));
+    persistParticipantField(userId, { specifics });
   };
 
   /** Add an extra item row for a participant */
   const addAdditionalItem = (userId: string) => {
     if (isPastMeal || !meal) return;
     if (!isHost && userId !== currentUserNumericId) return;
-    setMeal((prev) => {
-      if (!prev) return prev;
-      const p = prev.participants[userId];
-      if (!p) return prev;
-      return {
-        ...prev,
-        participants: {
-          ...prev.participants,
-          [userId]: { ...p, additional_items: [...(p.additional_items || []), { food: "none", specifics: "" }] },
-        },
-      };
-    });
+    const p = meal.participants[userId];
+    if (!p) return;
+    const additional_items = [...(p.additional_items || []), { food: "none", specifics: "" }];
+
+    const apply = (m: Meal): Meal => {
+      const mp = m.participants[userId];
+      if (!mp) return m;
+      return { ...m, participants: { ...m.participants, [userId]: { ...mp, additional_items } } };
+    };
+    setMeal((prev) => (prev ? apply(prev) : prev));
+    setOriginalMeal((prev) => (prev ? apply(prev) : prev));
+    persistParticipantField(userId, { additional_items });
   };
 
   /** Remove an extra item row for a participant */
   const removeAdditionalItem = (userId: string, index: number) => {
     if (isPastMeal || !meal) return;
     if (!isHost && userId !== currentUserNumericId) return;
-    setMeal((prev) => {
-      if (!prev) return prev;
-      const p = prev.participants[userId];
-      if (!p) return prev;
-      const updated = (p.additional_items || []).filter((_, i) => i !== index);
-      return {
-        ...prev,
-        participants: {
-          ...prev.participants,
-          [userId]: { ...p, additional_items: updated },
-        },
-      };
-    });
+    const p = meal.participants[userId];
+    if (!p) return;
+    const additional_items = (p.additional_items || []).filter((_, i) => i !== index);
+
+    const apply = (m: Meal): Meal => {
+      const mp = m.participants[userId];
+      if (!mp) return m;
+      return { ...m, participants: { ...m.participants, [userId]: { ...mp, additional_items } } };
+    };
+    setMeal((prev) => (prev ? apply(prev) : prev));
+    setOriginalMeal((prev) => (prev ? apply(prev) : prev));
+    persistParticipantField(userId, { additional_items });
   };
 
   /** Set food for an additional item */
   const setAdditionalItemFood = (userId: string, index: number, food: string) => {
     if (isPastMeal || !meal) return;
     if (!isHost && userId !== currentUserNumericId) return;
-    setMeal((prev) => {
-      if (!prev) return prev;
-      const p = prev.participants[userId];
-      if (!p) return prev;
-      const items = [...(p.additional_items || [])];
-      items[index] = { ...items[index], food };
-      return {
-        ...prev,
-        participants: { ...prev.participants, [userId]: { ...p, additional_items: items } },
-      };
-    });
+    if (foodRequestsEnforced && food !== "none") {
+      if (food === "other") {
+        if (hasRealFoodOptions(userId)) return;
+      } else if (!getAllowedFoodsForParticipant(userId).includes(food)) {
+        return;
+      }
+    }
+    const p = meal.participants[userId];
+    if (!p) return;
+    const additional_items = [...(p.additional_items || [])];
+    additional_items[index] = { ...additional_items[index], food };
+
+    const apply = (m: Meal): Meal => {
+      const mp = m.participants[userId];
+      if (!mp) return m;
+      return { ...m, participants: { ...m.participants, [userId]: { ...mp, additional_items } } };
+    };
+    setMeal((prev) => (prev ? apply(prev) : prev));
+    setOriginalMeal((prev) => (prev ? apply(prev) : prev));
+    persistParticipantField(userId, { additional_items });
   };
 
   /** Set specifics for an additional item */
   const setAdditionalItemSpecifics = (userId: string, index: number, specifics: string) => {
     if (isPastMeal || !meal) return;
     if (!isHost && userId !== currentUserNumericId) return;
-    setMeal((prev) => {
-      if (!prev) return prev;
-      const p = prev.participants[userId];
-      if (!p) return prev;
-      const items = [...(p.additional_items || [])];
-      items[index] = { ...items[index], specifics };
-      return {
-        ...prev,
-        participants: { ...prev.participants, [userId]: { ...p, additional_items: items } },
-      };
-    });
+    const p = meal.participants[userId];
+    if (!p) return;
+    const additional_items = [...(p.additional_items || [])];
+    additional_items[index] = { ...additional_items[index], specifics };
+
+    const apply = (m: Meal): Meal => {
+      const mp = m.participants[userId];
+      if (!mp) return m;
+      return { ...m, participants: { ...m.participants, [userId]: { ...mp, additional_items } } };
+    };
+    setMeal((prev) => (prev ? apply(prev) : prev));
+    setOriginalMeal((prev) => (prev ? apply(prev) : prev));
+    persistParticipantField(userId, { additional_items });
   };
 
   /**
@@ -1831,6 +1855,47 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
               </div>
             )}
 
+            {!isCreateMode && mealId && (
+              <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+                {isHost && !isPastMeal && (
+                  <button
+                    type="button"
+                    onClick={() => setShowManageFoodRequests(true)}
+                    style={{
+                      padding: "10px 16px",
+                      borderRadius: 10,
+                      border: "none",
+                      background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                      color: "white",
+                      fontWeight: 700,
+                      fontSize: "0.85rem",
+                      cursor: "pointer",
+                    }}
+                  >
+                    🍽️ Manage Food Requests
+                  </button>
+                )}
+                {(meal.food_requests?.some((it) => it.quantity > 0) ?? false) && (
+                  <button
+                    type="button"
+                    onClick={() => setShowViewFoodRequests(true)}
+                    style={{
+                      padding: "10px 16px",
+                      borderRadius: 10,
+                      border: "2px solid #fb923c",
+                      background: "white",
+                      color: "#ea580c",
+                      fontWeight: 700,
+                      fontSize: "0.85rem",
+                      cursor: "pointer",
+                    }}
+                  >
+                    📋 View Food Requests
+                  </button>
+                )}
+              </div>
+            )}
+
             <h4 style={{ marginBottom: 16, fontWeight: 800, fontSize: "1.05rem", color: "#374151" }}>
               Participants ({acceptedParticipants.length})
             </h4>
@@ -1930,7 +1995,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                       const profileFoods: string[] = [];
                       const userCanBring = user.can_bring;
                       if (userCanBring) {
-                        const presets = ["drinks", "dessert", "salad", "main_dish", "snacks", "sides", "utensils"] as const;
+                        const presets = ["drinks", "dessert", "salad", "main_dish", "snacks", "side", "utensils"] as const;
                         for (const key of presets) {
                           if (userCanBring[key] && !foods.includes(key)) profileFoods.push(key);
                         }
@@ -1938,7 +2003,9 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                           if (!foods.includes(c) && !profileFoods.includes(c)) profileFoods.push(c);
                         }
                       }
-                      const knownFoods = ["none", ...foods, ...profileFoods];
+                      const knownFoods = foodRequestsEnforced
+                        ? getAllowedFoodsForParticipant(userId)
+                        : ["none", ...foods, ...profileFoods];
 
                       return (
                         <React.Fragment key={userId}>
@@ -1996,6 +2063,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                             {(() => {
                               const selectValue = knownFoods.includes(participant.food) ? participant.food : "__other__";
                               const canEdit = !isPastMeal && (isHost || userId === currentUserNumericId);
+                              const showOther = !foodRequestsEnforced || hasRealFoodOptions(userId) === false;
                               return (
                                 <select
                                   value={selectValue}
@@ -2014,14 +2082,10 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                                     fontFamily: "Inter, sans-serif",
                                   }}
                                 >
-                                  <option value="none">{formatFood("none")}</option>
-                                  {foods.map((f) => (
+                                  {knownFoods.map((f) => (
                                     <option key={f} value={f}>{formatFood(f)}</option>
                                   ))}
-                                  {profileFoods.map((f) => (
-                                    <option key={`p-${f}`} value={f}>{formatFood(f)}</option>
-                                  ))}
-                                  <option value="__other__">✏️ Other</option>
+                                  {showOther && <option value="__other__">✏️ Other</option>}
                                 </select>
                               );
                             })()}
@@ -2106,6 +2170,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                         {(participant.additional_items || []).map((item, idx) => {
                           const canEditItem = !isPastMeal && (isHost || userId === currentUserNumericId) && !invitedMode;
                           const itemSelectValue = knownFoods.includes(item.food) ? item.food : "__other__";
+                          const itemShowOther = !foodRequestsEnforced || hasRealFoodOptions(userId) === false;
                           return (
                             <tr
                               key={`${userId}-extra-${idx}`}
@@ -2161,14 +2226,10 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                                     fontFamily: "Inter, sans-serif",
                                   }}
                                 >
-                                  <option value="none">{formatFood("none")}</option>
-                                  {foods.map((f) => (
+                                  {knownFoods.map((f) => (
                                     <option key={f} value={f}>{formatFood(f)}</option>
                                   ))}
-                                  {profileFoods.map((f) => (
-                                    <option key={`p-${f}`} value={f}>{formatFood(f)}</option>
-                                  ))}
-                                  <option value="__other__">✏️ Other</option>
+                                  {itemShowOther && <option value="__other__">✏️ Other</option>}
                                 </select>
                               </td>
                               <td style={{ padding: "6px 12px" }}>
@@ -2871,6 +2932,20 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           )}
         </div>
       </div>
+      {showManageFoodRequests && meal && mealId && (
+        <FoodRequestsModal
+          mealId={mealId}
+          meal={meal}
+          foods={foods}
+          onClose={() => setShowManageFoodRequests(false)}
+        />
+      )}
+      {showViewFoodRequests && meal && (
+        <ViewFoodRequestsModal
+          meal={meal}
+          onClose={() => setShowViewFoodRequests(false)}
+        />
+      )}
     </div>
   );
 }

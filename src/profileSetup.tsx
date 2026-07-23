@@ -50,7 +50,7 @@ export default function ProfileSetup({ user, onComplete, onCancel }: ProfileSetu
     { key: "salad", label: "🥗 Salad" },
     { key: "main_dish", label: "🍝 Main Dish" },
     { key: "snacks", label: "🍿 Snacks" },
-    { key: "sides", label: "🥔 Sides" },
+    { key: "side", label: "🥔 Side" },
     { key: "utensils", label: "🍴 Utensils" },
   ];
 

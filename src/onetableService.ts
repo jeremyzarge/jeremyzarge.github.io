@@ -31,6 +31,75 @@ export type OTLocation = {
   subneighborhood?: string;
 };
 
+// ─── Areas ────────────────────────────────────────────────────────────────────
+// OneTable's own "area" regions (from their areas query) with each area's center
+// point, used to pick the right areaId for wherever a meal is actually hosted.
+// "More Cities" (id 8) is OneTable's catch-all area for locations that aren't
+// close to any of their named metros.
+
+const OT_MORE_CITIES_AREA_ID = 8;
+const OT_NEAREST_AREA_MAX_KM = 100;
+
+const OT_AREAS: Array<{ id: number; label: string; lat: number; lng: number }> = [
+  { id: 41, label: "Asheville", lat: 35.9131996, lng: -79.0558445 },
+  { id: 13, label: "Atlanta", lat: 33.74899, lng: -84.39026 },
+  { id: 29, label: "Baltimore", lat: 39.2908816, lng: -76.610759 },
+  { id: 2, label: "Bay Area", lat: 37.77903, lng: -122.41991 },
+  { id: 38, label: "Boca Raton/Delray Beach", lat: 26.3586885, lng: -80.0830984 },
+  { id: 14, label: "Boston", lat: 42.35543, lng: -71.06051 },
+  { id: 47, label: "Charlottesville", lat: 38.029305, lng: -78.476677 },
+  { id: 3, label: "Chicago", lat: 41.8755616, lng: -87.6244212 },
+  { id: 30, label: "Cincinnati", lat: 39.10145, lng: -84.51246 },
+  { id: 11, label: "Colorado", lat: 39.73924, lng: -104.98486 },
+  { id: 22, label: "Dallas", lat: 32.7762719, lng: -96.7968559 },
+  { id: 12, label: "DC Metro Area", lat: 38.8950368, lng: -77.0365427 },
+  { id: 17, label: "Detroit/Ann Arbor", lat: 42.26816, lng: -83.73123 },
+  { id: 46, label: "Honolulu", lat: 21.306944, lng: -157.858337 },
+  { id: 40, label: "Kansas City Metro Area", lat: 39.099728, lng: -94.578568 },
+  { id: 16, label: "Los Angeles", lat: 34.0536909, lng: -118.242766 },
+  { id: 44, label: "Louisville", lat: 38.328732, lng: -85.764771 },
+  { id: 32, label: "Madison", lat: 43.074761, lng: -89.3837613 },
+  { id: 34, label: "Memphis", lat: 35.14602, lng: -90.05176 },
+  { id: 24, label: "Miami", lat: 25.7741728, lng: -80.19362 },
+  { id: 33, label: "Nashville", lat: 36.16228, lng: -86.7743 },
+  { id: 1, label: "New York", lat: 40.7127281, lng: -74.0060152 },
+  { id: 27, label: "Philadelphia", lat: 39.95272, lng: -75.16353 },
+  { id: 37, label: "Palm Beaches", lat: 26.6279798, lng: -80.4494174 },
+  { id: 15, label: "Pittsburgh", lat: 40.44169, lng: -79.99009 },
+  { id: 31, label: "Phoenix", lat: 33.44844, lng: -112.07414 },
+  { id: 21, label: "Portland", lat: 45.5202471, lng: -122.674194 },
+  { id: 77, label: "Rochester", lat: 43.1565779, lng: -77.6088465 },
+  { id: 39, label: "Raleigh-Durham-Chapel Hill", lat: 35.994034, lng: -78.898621 },
+  { id: 26, label: "Sacramento", lat: 38.58106, lng: -121.4939 },
+  { id: 25, label: "Seattle", lat: 47.6062095, lng: -122.3320708 },
+  { id: 35, label: "Twin Cities", lat: 44.9773, lng: -93.26547 },
+  { id: 45, label: "Western Massachusetts", lat: 42.562565, lng: -70.802467 },
+];
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/** Picks the closest OneTable area to a given point, falling back to "More Cities". */
+function nearestAreaId(lat?: number, lng?: number): number {
+  if (lat === undefined || lng === undefined || Number.isNaN(lat) || Number.isNaN(lng)) {
+    return OT_MORE_CITIES_AREA_ID;
+  }
+  let best = OT_AREAS[0];
+  let bestDist = Infinity;
+  for (const area of OT_AREAS) {
+    const dist = haversineKm(lat, lng, area.lat, area.lng);
+    if (dist < bestDist) { bestDist = dist; best = area; }
+  }
+  return bestDist <= OT_NEAREST_AREA_MAX_KM ? best.id : OT_MORE_CITIES_AREA_ID;
+}
+
 // ─── Login ────────────────────────────────────────────────────────────────────
 // Update OT_LOGIN_MUTATION once you confirm the correct operation name from
 // DevTools → Network → any graphql POST made during OneTable login.
@@ -276,7 +345,7 @@ export async function createOTEvent(
     duration: 7200,
     fullAddress: location.full_address,
     secondaryAddress: location.secondary_address || "",
-    areaId: 1,
+    areaId: nearestAreaId(location.lat, location.lng),
     areaOther: "",
     location: { lat: location.lat, lng: location.lng },
     stateLocation: "",
@@ -514,7 +583,7 @@ export async function updateOTEvent(
     duration: 7200,
     fullAddress: location.full_address,
     secondaryAddress: location.secondary_address || "",
-    areaId: 1,
+    areaId: nearestAreaId(location.lat, location.lng),
     areaOther: "",
     location: { lat: location.lat, lng: location.lng },
     stateLocation: "",
@@ -619,7 +688,11 @@ const NOURISHMENT_QUERY = `
 /**
  * Requests nourishment for the event.
  * sponsorId 194 / $100 is the standard nourishment sponsor for area 1 (NYC UWS),
- * matching what requestNourishment.py uses.
+ * matching what requestNourishment.py uses. areaId is now picked dynamically
+ * per event location (see nearestAreaId), but sponsorId is still hardcoded to
+ * the NYC UWS sponsor for every area — OneTable hasn't given us a sponsorId
+ * mapping for other areas, so nourishment requests outside NYC may be
+ * rejected or misattributed until that mapping is available.
  */
 export async function requestOTNourishment(
   token: string,

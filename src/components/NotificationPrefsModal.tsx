@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ref, get, set } from "firebase/database";
 import { rtdb } from "../firebaseClient";
+import { attemptCloseWithUnsavedChanges } from "../utils";
 import type { NotifPrefKey } from "../notifications";
 
 interface NotificationPrefsModalProps {
@@ -68,15 +69,17 @@ export default function NotificationPrefsModal({ userId, onClose }: Notification
     apartment_requests: true,
     apartment_invites: true,
   });
+  const [originalPrefs, setOriginalPrefs] = useState<Record<NotifPrefKey, boolean> | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     get(ref(rtdb, `users/${userId}/notification_prefs`)).then((snap) => {
-      if (snap.exists()) {
-        const stored = snap.val() as Partial<Record<NotifPrefKey, boolean>>;
-        setPrefs((prev) => ({ ...prev, ...stored }));
-      }
+      setPrefs((prev) => {
+        const merged = snap.exists() ? { ...prev, ...(snap.val() as Partial<Record<NotifPrefKey, boolean>>) } : prev;
+        setOriginalPrefs(merged);
+        return merged;
+      });
       setLoading(false);
     });
   }, [userId]);
@@ -84,6 +87,8 @@ export default function NotificationPrefsModal({ userId, onClose }: Notification
   const toggle = (key: NotifPrefKey) => {
     setPrefs((prev) => ({ ...prev, [key]: !prev[key] }));
   };
+
+  const hasChanges = originalPrefs !== null && JSON.stringify(prefs) !== JSON.stringify(originalPrefs);
 
   const handleSave = async () => {
     setSaving(true);
@@ -96,6 +101,8 @@ export default function NotificationPrefsModal({ userId, onClose }: Notification
       setSaving(false);
     }
   };
+
+  const handleClose = () => attemptCloseWithUnsavedChanges(hasChanges, handleSave, onClose);
 
   return (
     <div
@@ -110,7 +117,7 @@ export default function NotificationPrefsModal({ userId, onClose }: Notification
         backdropFilter: "blur(4px)",
         padding: 16,
       }}
-      onClick={onClose}
+      onClick={handleClose}
     >
       <div
         style={{
@@ -206,7 +213,7 @@ export default function NotificationPrefsModal({ userId, onClose }: Notification
 
         <div style={{ display: "flex", gap: 10, marginTop: 24, justifyContent: "flex-end" }}>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             style={{
               padding: "10px 20px",
               borderRadius: 10,

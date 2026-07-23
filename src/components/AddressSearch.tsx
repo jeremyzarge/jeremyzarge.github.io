@@ -15,21 +15,26 @@ interface AddressSearchProps {
   autoFocus?: boolean;
 }
 
-// NYC Planning Labs GeoSearch — free, no API key, excellent NYC address data
-async function searchNYC(query: string): Promise<Suggestion[]> {
+// Nominatim (OpenStreetMap) — free, no API key, covers anywhere in the US
+async function searchUS(query: string): Promise<Suggestion[]> {
   if (query.trim().length < 3) return [];
   try {
     const resp = await fetch(
-      `https://geosearch.planninglabs.nyc/v2/search?text=${encodeURIComponent(query)}&size=6`,
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=us&limit=6`,
       { headers: { Accept: "application/json" } }
     );
     if (!resp.ok) return [];
     const data = await resp.json();
-    return (data.features || []).map((f: any) => ({
-      label: f.properties.label as string,
-      lng: f.geometry.coordinates[0] as number,
-      lat: f.geometry.coordinates[1] as number,
-    }));
+    return (data || []).map((r: any) => {
+      let label: string = r.display_name ?? "";
+      const usIdx = label.indexOf(", United States");
+      if (usIdx > 0) label = label.substring(0, usIdx);
+      return {
+        label,
+        lng: parseFloat(r.lon),
+        lat: parseFloat(r.lat),
+      };
+    });
   } catch {
     return [];
   }
@@ -65,7 +70,7 @@ export default function AddressSearch({
     if (raw.trim().length < 3) { setSuggestions([]); setOpen(false); return; }
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
-      const results = await searchNYC(raw);
+      const results = await searchUS(raw);
       setSuggestions(results);
       setOpen(results.length > 0);
       setLoading(false);

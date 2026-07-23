@@ -33,7 +33,7 @@ export type CanBring = {
   salad: boolean;
   main_dish: boolean;
   snacks: boolean;
-  sides: boolean;
+  side: boolean;
   utensils: boolean;
   custom?: string[];
 };
@@ -77,6 +77,12 @@ export type MealMessage = {
   timestamp: number;
 };
 
+/** One food-request line item set by the host (e.g. "2 sides"). */
+export type FoodRequestItem = {
+  food: string;      // catalog key (RTDB "food" node) or custom text
+  quantity: number;  // desired total quantity, 0 and up
+};
+
 export type Meal = {
   title: string;
   host_apartment_id: string;
@@ -92,6 +98,8 @@ export type Meal = {
   onetable_description?: string;
   onetable_nourishment?: boolean;
   onetable_reservations?: Record<string, number>;
+  food_requests?: FoodRequestItem[];
+  food_requests_enforced?: boolean; // if true, guests are restricted to food_requests; otherwise they're just suggestions
 };
 
 /**
