@@ -325,7 +325,6 @@ export default function ProfileEditor({
           value={firstName}
           onChange={(e) => setFirstName(e.target.value)}
           style={inputStyle}
-          autoFocus
         />
         <input
           placeholder="Last name"
