@@ -100,7 +100,7 @@ export default function App() {
         otSaved.current = true;
         try {
           const numericId = await ensureUserNumericMapping(currentUser.uid);
-          await set(ref(rtdb, `users/${numericId}/onetable_token`), token);
+          await set(ref(rtdb, `private/${numericId}/onetable_token`), token);
           pendingOTToken.current = null;
           sessionStorage.removeItem("_ot_pending");
           const freshProfile = await loadProfile(numericId);
@@ -178,8 +178,12 @@ export default function App() {
    * Load user profile from database
    */
   async function loadProfile(numericId: string): Promise<UserProfile | null> {
-    const snap = await get(ref(rtdb, `users/${numericId}`));
-    return snap.exists() ? (snap.val() as UserProfile) : null;
+    const [snap, privateSnap] = await Promise.all([
+      get(ref(rtdb, `users/${numericId}`)),
+      get(ref(rtdb, `private/${numericId}`)),
+    ]);
+    if (!snap.exists()) return null;
+    return { ...snap.val(), ...(privateSnap.exists() ? privateSnap.val() : {}) } as UserProfile;
   }
 
   /**
@@ -211,9 +215,9 @@ export default function App() {
 
       // Auto-save email from Google auth if not already stored
       if (u.email) {
-        const emailSnap = await get(ref(rtdb, `users/${numericId}/email`));
+        const emailSnap = await get(ref(rtdb, `private/${numericId}/email`));
         if (!emailSnap.exists() || emailSnap.val() !== u.email) {
-          await set(ref(rtdb, `users/${numericId}/email`), u.email);
+          await set(ref(rtdb, `private/${numericId}/email`), u.email);
         }
       }
 
@@ -223,7 +227,7 @@ export default function App() {
       if (otToken && !otSaved.current) {
         otSaved.current = true;
         try {
-          await set(ref(rtdb, `users/${numericId}/onetable_token`), otToken);
+          await set(ref(rtdb, `private/${numericId}/onetable_token`), otToken);
           pendingOTToken.current = null;
           sessionStorage.removeItem("_ot_pending");
           justSavedOT = true;
@@ -1163,26 +1167,32 @@ export default function App() {
 
               // OneTable: create reservation and auto-accept with host token
               if (mealData.onetable_event_id) {
-                const guestTokenSnap = await get(ref(rtdb, `users/${myId}/onetable_token`));
-                if (guestTokenSnap.exists()) {
-                  const reservationId = await createOTReservation(
-                    guestTokenSnap.val(),
-                    mealData.onetable_event_id
-                  );
-                  if (reservationId) {
-                    await set(
-                      ref(rtdb, `meal_events/${viewingInvitedMealId}/onetable_reservations/${myId}`),
-                      reservationId
+                try {
+                  const guestTokenSnap = await get(ref(rtdb, `private/${myId}/onetable_token`));
+                  if (guestTokenSnap.exists()) {
+                    const reservationId = await createOTReservation(
+                      guestTokenSnap.val(),
+                      mealData.onetable_event_id
                     );
-                    // Auto-accept using the first host with an OT token
-                    for (const hostId of hostIds) {
-                      const hostTokenSnap = await get(ref(rtdb, `users/${hostId}/onetable_token`));
-                      if (hostTokenSnap.exists()) {
-                        await acceptOTReservation(hostTokenSnap.val(), reservationId);
-                        break;
+                    if (reservationId) {
+                      await set(
+                        ref(rtdb, `meal_events/${viewingInvitedMealId}/onetable_reservations/${myId}`),
+                        reservationId
+                      );
+                      // Auto-accept using the first host with an OT token
+                      for (const hostId of hostIds) {
+                        const hostTokenSnap = await get(ref(rtdb, `private/${hostId}/onetable_token`));
+                        if (hostTokenSnap.exists()) {
+                          await acceptOTReservation(hostTokenSnap.val(), reservationId);
+                          break;
+                        }
                       }
                     }
                   }
+                } catch (err) {
+                  // Host token isn't readable by a guest until the accept flow moves server-side —
+                  // don't let that block the notification/close below.
+                  console.error("[OT] Failed to sync reservation on accept:", err);
                 }
               }
 
@@ -1208,7 +1218,7 @@ export default function App() {
               // Cancel any existing OT reservation (in case they had previously accepted)
               const reservationId = mealData.onetable_reservations?.[myId];
               if (reservationId) {
-                const tokenSnap = await get(ref(rtdb, `users/${myId}/onetable_token`));
+                const tokenSnap = await get(ref(rtdb, `private/${myId}/onetable_token`));
                 if (tokenSnap.exists()) {
                   await cancelOTReservation(tokenSnap.val(), reservationId);
                   await remove(ref(rtdb, `meal_events/${viewingInvitedMealId}/onetable_reservations/${myId}`));

@@ -51,7 +51,7 @@ export default function OneTableConnect({
     if (!valid) { setVerifyError("Token invalid or expired."); return; }
     setSaving(true);
     try {
-      await set(ref(rtdb, `users/${userId}/onetable_token`), manualToken.trim());
+      await set(ref(rtdb, `private/${userId}/onetable_token`), manualToken.trim());
       onSaved();
     } catch (err: any) {
       alert("Failed to save: " + err.message);

@@ -140,22 +140,28 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
         const mealData = mealSnap.val();
 
         if (mealData.onetable_event_id) {
-          const guestTokenSnap = await get(ref(rtdb, `users/${myId}/onetable_token`));
-          if (guestTokenSnap.exists()) {
-            const reservationId = await createOTReservation(guestTokenSnap.val(), mealData.onetable_event_id);
-            if (reservationId) {
-              await set(ref(rtdb, `meal_events/${mealId}/onetable_reservations/${myId}`), reservationId);
-              const hostIds = Object.entries(mealData.participants ?? {})
-                .filter(([id, p]: [string, any]) => p.role === "host" && id !== myId)
-                .map(([id]) => id);
-              for (const hostId of hostIds) {
-                const hostTokenSnap = await get(ref(rtdb, `users/${hostId}/onetable_token`));
-                if (hostTokenSnap.exists()) {
-                  await acceptOTReservation(hostTokenSnap.val(), reservationId);
-                  break;
+          try {
+            const guestTokenSnap = await get(ref(rtdb, `private/${myId}/onetable_token`));
+            if (guestTokenSnap.exists()) {
+              const reservationId = await createOTReservation(guestTokenSnap.val(), mealData.onetable_event_id);
+              if (reservationId) {
+                await set(ref(rtdb, `meal_events/${mealId}/onetable_reservations/${myId}`), reservationId);
+                const hostIds = Object.entries(mealData.participants ?? {})
+                  .filter(([id, p]: [string, any]) => p.role === "host" && id !== myId)
+                  .map(([id]) => id);
+                for (const hostId of hostIds) {
+                  const hostTokenSnap = await get(ref(rtdb, `private/${hostId}/onetable_token`));
+                  if (hostTokenSnap.exists()) {
+                    await acceptOTReservation(hostTokenSnap.val(), reservationId);
+                    break;
+                  }
                 }
               }
             }
+          } catch (err) {
+            // Host token isn't readable by a guest until the accept flow moves server-side —
+            // the invite itself still gets accepted above, so don't surface this as a failure.
+            console.error("[OT] Failed to sync reservation on accept:", err);
           }
         }
       }
@@ -183,7 +189,7 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
         const mealData = mealSnap.val();
         const reservationId = mealData.onetable_reservations?.[myId];
         if (reservationId) {
-          const tokenSnap = await get(ref(rtdb, `users/${myId}/onetable_token`));
+          const tokenSnap = await get(ref(rtdb, `private/${myId}/onetable_token`));
           if (tokenSnap.exists()) {
             await cancelOTReservation(tokenSnap.val(), reservationId);
             await remove(ref(rtdb, `meal_events/${mealId}/onetable_reservations/${myId}`));

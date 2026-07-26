@@ -1,0 +1,56 @@
+{
+  "rules": {
+    "users": {
+      ".read": "auth != null",
+      "$userId": {
+        ".write": "auth != null && ($userId == root.child('uid_to_id').child(auth.uid).val() || !data.exists())"
+      }
+    },
+    "private": {
+      "$userId": {
+        ".read": "auth != null && $userId == root.child('uid_to_id').child(auth.uid).val()",
+        ".write": "auth != null && $userId == root.child('uid_to_id').child(auth.uid).val()"
+      }
+    },
+    "apartments": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "apartment_requests": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "apartment_invites": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "id_to_uid": {
+      ".read": "auth != null",
+      "$numericId": {
+        ".write": "auth != null && !data.exists()"
+      }
+    },
+    "uid_to_id": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null && auth.uid == $uid && !data.exists()"
+      }
+    },
+    "meal_events": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "meal_matrix": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "user_relationships": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "food": {
+      ".read": "auth != null",
+      ".write": false
+    }
+  }
+}

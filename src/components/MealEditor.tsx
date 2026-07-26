@@ -232,7 +232,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
 
         // Load current user's OneTable token for the sync option
         if (currentUserId) {
-          const otSnap = await get(ref(rtdb, `users/${currentUserId}/onetable_token`));
+          const otSnap = await get(ref(rtdb, `private/${currentUserId}/onetable_token`));
           if (otSnap.exists()) setOtToken(otSnap.val());
         }
 
@@ -315,7 +315,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
 
       // Load current user's OT token for sync option
       if (currentUserId) {
-        const otSnap = await get(ref(rtdb, `users/${currentUserId}/onetable_token`));
+        const otSnap = await get(ref(rtdb, `private/${currentUserId}/onetable_token`));
         if (otSnap.exists()) setOtToken(otSnap.val());
       }
 
@@ -614,7 +614,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         const reservationId = freshReservations[currentUserId] ?? meal.onetable_reservations?.[currentUserId];
 
         if (reservationId) {
-          const tokenSnap = await get(ref(rtdb, `users/${currentUserId}/onetable_token`));
+          const tokenSnap = await get(ref(rtdb, `private/${currentUserId}/onetable_token`));
           if (tokenSnap.exists()) {
             await cancelOTReservation(tokenSnap.val(), reservationId);
             await remove(ref(rtdb, `meal_events/${mealId}/onetable_reservations/${currentUserId}`));
@@ -915,10 +915,16 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         for (const removedId of removedIds) {
           const reservationId = meal.onetable_reservations?.[removedId] ?? (originalMeal as any)?.onetable_reservations?.[removedId];
           if (reservationId) {
-            const removedTokenSnap = await get(ref(rtdb, `users/${removedId}/onetable_token`));
-            if (removedTokenSnap.exists()) {
-              await cancelOTReservation(removedTokenSnap.val(), reservationId);
-              await remove(ref(rtdb, `meal_events/${editId}/onetable_reservations/${removedId}`));
+            try {
+              const removedTokenSnap = await get(ref(rtdb, `private/${removedId}/onetable_token`));
+              if (removedTokenSnap.exists()) {
+                await cancelOTReservation(removedTokenSnap.val(), reservationId);
+                await remove(ref(rtdb, `meal_events/${editId}/onetable_reservations/${removedId}`));
+              }
+            } catch (err) {
+              // A removed participant's token isn't readable by the host until this moves
+              // server-side — don't let that abort the rest of the save (notifications, etc).
+              console.error("[OT] Failed to cancel removed participant's reservation:", err);
             }
           }
         }
@@ -1089,7 +1095,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     try {
       // Cancel OneTable event if linked
       if (meal.onetable_event_id && currentUserId) {
-        const hostTokenSnap = await get(ref(rtdb, `users/${currentUserId}/onetable_token`));
+        const hostTokenSnap = await get(ref(rtdb, `private/${currentUserId}/onetable_token`));
         if (hostTokenSnap.exists()) {
           await cancelOTEvent(hostTokenSnap.val(), meal.onetable_event_id);
         }

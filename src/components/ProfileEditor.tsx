@@ -64,7 +64,7 @@ export default function ProfileEditor({
 
   // Always load fresh OT token on mount — the profile prop may be stale
   useEffect(() => {
-    get(ref(rtdb, `users/${userId}/onetable_token`)).then((snap) => {
+    get(ref(rtdb, `private/${userId}/onetable_token`)).then((snap) => {
       setOtToken(snap.exists() ? snap.val() : "");
     });
   }, [userId]);
@@ -177,7 +177,7 @@ export default function ProfileEditor({
     if (!window.confirm("Disconnect OneTable? This will remove your saved token.")) return;
     setOtDisconnecting(true);
     try {
-      await set(ref(rtdb, `users/${userId}/onetable_token`), null);
+      await set(ref(rtdb, `private/${userId}/onetable_token`), null);
       setOtToken("");
     } finally {
       setOtDisconnecting(false);
@@ -976,7 +976,7 @@ export default function ProfileEditor({
         userId={userId}
         existingToken={otToken || undefined}
         onSaved={async () => {
-          const snap = await get(ref(rtdb, `users/${userId}/onetable_token`));
+          const snap = await get(ref(rtdb, `private/${userId}/onetable_token`));
           setOtToken(snap.exists() ? snap.val() : "");
           setShowOTConnect(false);
         }}
