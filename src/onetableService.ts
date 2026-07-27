@@ -1,5 +1,6 @@
 import type { Meal } from "./types";
 import { WORKER_URL, NOTIFICATION_SECRET } from "./notifications";
+import { auth } from "./firebaseClient";
 
 // OneTable's API has no CORS allowance for browser origins, so requests are
 // routed through the Cloudflare Worker (same one used for push), which calls
@@ -884,4 +885,41 @@ export async function cancelOTEvent(
     if (isOneTableAuthError(err)) throw err;
     return false;
   }
+}
+
+// ─── Host-mediated actions ────────────────────────────────────────────────────
+// These act on someone else's onetable_token (the host's, or a removed
+// guest's), which RTDB rules correctly restrict to that person alone. The
+// worker verifies our Firebase identity, checks we're actually authorized for
+// the meal in question, then performs the action with admin-level access —
+// the token itself never reaches this client.
+
+async function callWorkerOT(path: string, body: Record<string, unknown>): Promise<void> {
+  const idToken = await auth.currentUser?.getIdToken();
+  if (!idToken) throw new Error("Not signed in");
+  const resp = await fetch(`${WORKER_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Notification-Secret": NOTIFICATION_SECRET,
+      "Authorization": `Bearer ${idToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data?.error || `Request failed: ${resp.status}`);
+}
+
+/** Accepts the caller's own reservation using the meal's host's token, via the worker. */
+export async function hostAcceptReservation(mealId: string, reservationId: number): Promise<void> {
+  await callWorkerOT("/onetable/host-accept-reservation", { mealId, reservationId });
+}
+
+/** Cancels a removed participant's reservation using their own token, via the worker. Caller must be a host. */
+export async function hostCancelReservation(
+  mealId: string,
+  removedUserId: string,
+  reservationId: number
+): Promise<void> {
+  await callWorkerOT("/onetable/host-cancel-reservation", { mealId, removedUserId, reservationId });
 }

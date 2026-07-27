@@ -6,7 +6,7 @@ import { rtdb } from "../firebaseClient";
 import { fetchAllUsers, fetchAllApartments, fetchAddressSuggestions, getAllergenCounts, formatFood } from "../utils";
 import { generateMealInviteUrl } from "../inviteService";
 import { createMeal } from "../index";
-import { createOTEvent, updateOTEvent, requestOTNourishment, cancelOTEvent, cancelOTReservation, isOneTableAuthError, OT_RECONNECT_MESSAGE } from "../onetableService";
+import { createOTEvent, updateOTEvent, requestOTNourishment, cancelOTEvent, cancelOTReservation, isOneTableAuthError, OT_RECONNECT_MESSAGE, hostCancelReservation } from "../onetableService";
 import type { User } from "firebase/auth";
 import type { Meal, MealParticipant, UserWithId, Apartment, FoodRequestItem } from "../types";
 import ClickableUserName from "./ClickableUserName";
@@ -925,14 +925,9 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           const reservationId = meal.onetable_reservations?.[removedId] ?? (originalMeal as any)?.onetable_reservations?.[removedId];
           if (reservationId) {
             try {
-              const removedTokenSnap = await get(ref(rtdb, `private/${removedId}/onetable_token`));
-              if (removedTokenSnap.exists()) {
-                await cancelOTReservation(removedTokenSnap.val(), reservationId);
-                await remove(ref(rtdb, `meal_events/${editId}/onetable_reservations/${removedId}`));
-              }
+              await hostCancelReservation(editId, removedId, reservationId);
             } catch (err) {
-              // A removed participant's token isn't readable by the host until this moves
-              // server-side — don't let that abort the rest of the save (notifications, etc).
+              // Don't let this abort the rest of the save (notifications, etc).
               console.error("[OT] Failed to cancel removed participant's reservation:", err);
             }
           }

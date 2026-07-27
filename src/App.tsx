@@ -27,8 +27,10 @@ import {
   requestToJoinApartment,
   cancelJoinRequest,
 } from "./apartmentService";
-import { createOTReservation, acceptOTReservation, cancelOTReservation, isOneTableAuthError, OT_RECONNECT_MESSAGE } from "./onetableService";
+import { createOTReservation, cancelOTReservation, isOneTableAuthError, OT_RECONNECT_MESSAGE, hostAcceptReservation } from "./onetableService";
 import NotificationPrefsModal from "./components/NotificationPrefsModal";
+import DataSecurityModal from "./components/DataSecurityModal";
+import HeaderPillButton from "./components/HeaderPillButton";
 import AdminStats from "./components/AdminStats";
 
 const { auth } = firebaseClient;
@@ -125,6 +127,7 @@ export default function App() {
   const [viewingApartmentId, setViewingApartmentId] = useState<string | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [showNotifPrefs, setShowNotifPrefs] = useState(false);
+  const [showDataSecurity, setShowDataSecurity] = useState(false);
   const [showAdminStats, setShowAdminStats] = useState(false);
   const [showPWAInstructions, setShowPWAInstructions] = useState(false);
   const isAdmin = authUser?.email === "jeremyzarge@gmail.com";
@@ -656,93 +659,31 @@ export default function App() {
     <div className="has-bottom-nav" style={{ width: "100%", maxWidth: 1200, margin: "0 auto" }}>
 
       {/* Desktop welcome header — hidden on mobile (profile tab handles it) */}
-      <div
-        className="welcome-header mobile-hidden"
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 24,
-          gap: 20,
-          flexWrap: "wrap",
-        }}
-      >
-        <h1 style={{ color: "white", margin: 0, textShadow: "2px 2px 4px rgba(0,0,0,0.2)" }}>
+      <div className="welcome-header mobile-hidden" style={{ marginBottom: 24 }}>
+        <h1 style={{ color: "white", margin: "0 0 18px", textAlign: "center", textShadow: "2px 2px 4px rgba(0,0,0,0.2)" }}>
           Welcome back, {displayName}!
         </h1>
-        <button
-          onClick={() => setShowProfileEditor(true)}
-          style={{
-            padding: "12px 20px",
-            borderRadius: 50,
-            border: "none",
-            background: "white",
-            color: "#4f46e5",
-            fontWeight: 700,
-            fontFamily: "Inter, sans-serif",
-            cursor: "pointer",
-            fontSize: "1rem",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-          }}
-        >
-          ✏️ Edit Profile
-        </button>
-        <button
-          onClick={() => setShowNotifPrefs(true)}
-          style={{
-            padding: "12px 20px",
-            borderRadius: 50,
-            border: "none",
-            background: "rgba(255,255,255,0.2)",
-            color: "white",
-            fontWeight: 700,
-            fontFamily: "Inter, sans-serif",
-            cursor: "pointer",
-            fontSize: "1rem",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-            backdropFilter: "blur(8px)",
-          }}
-        >
-          🔔 Notifications
-        </button>
-        {isAdmin && (
-          <button
-            onClick={() => setShowAdminStats(true)}
-            style={{
-              padding: "12px 20px",
-              borderRadius: 50,
-              border: "none",
-              background: "rgba(255,255,255,0.2)",
-              color: "white",
-              fontWeight: 700,
-              fontFamily: "Inter, sans-serif",
-              cursor: "pointer",
-              fontSize: "1rem",
-              boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-              backdropFilter: "blur(8px)",
-            }}
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          <HeaderPillButton variant="primary" onClick={() => setShowProfileEditor(true)}>
+            ✏️ Edit Profile
+          </HeaderPillButton>
+          <HeaderPillButton onClick={() => setShowNotifPrefs(true)}>
+            🔔 Notifications
+          </HeaderPillButton>
+          <HeaderPillButton onClick={() => setShowDataSecurity(true)}>
+            🔒 Data & Security
+          </HeaderPillButton>
+          {isAdmin && (
+            <HeaderPillButton onClick={() => setShowAdminStats(true)}>
+              📊 Admin
+            </HeaderPillButton>
+          )}
+          <HeaderPillButton
+            onClick={() => { if (myId) removePushSubscription(myId); localStorage.setItem("manually_signed_out", "1"); signOut(auth); }}
           >
-            📊 Admin
-          </button>
-        )}
-        <button
-          onClick={() => { if (myId) removePushSubscription(myId); localStorage.setItem("manually_signed_out", "1"); signOut(auth); }}
-          style={{
-            padding: "12px 20px",
-            borderRadius: 50,
-            border: "none",
-            background: "rgba(255,255,255,0.2)",
-            color: "white",
-            fontWeight: 700,
-            fontFamily: "Inter, sans-serif",
-            cursor: "pointer",
-            fontSize: "1rem",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-            backdropFilter: "blur(8px)",
-          }}
-        >
-          Sign Out
-        </button>
+            Sign Out
+          </HeaderPillButton>
+        </div>
       </div>
 
       <Tabs active={activeTab} onChange={(tab) => setActiveTab(tab as typeof activeTab)} />
@@ -926,6 +867,25 @@ export default function App() {
             }}
           >
             🔔 Notification Settings
+          </button>
+          <button
+            onClick={() => setShowDataSecurity(true)}
+            style={{
+              padding: "14px 32px",
+              borderRadius: 50,
+              border: "none",
+              background: "white",
+              color: "#667eea",
+              fontWeight: 700,
+              fontFamily: "Inter, sans-serif",
+              fontSize: "1rem",
+              cursor: "pointer",
+              boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
+              width: "100%",
+              maxWidth: 280,
+            }}
+          >
+            🔒 Data & Security
           </button>
           {isAdmin && (
             <button
@@ -1185,18 +1145,11 @@ export default function App() {
                       ref(rtdb, `meal_events/${viewingInvitedMealId}/onetable_reservations/${myId}`),
                       reservationId
                     );
-                    // Auto-accept using the first host with an OT token
-                    for (const hostId of hostIds) {
-                      try {
-                        const hostTokenSnap = await get(ref(rtdb, `private/${hostId}/onetable_token`));
-                        if (hostTokenSnap.exists()) {
-                          await acceptOTReservation(hostTokenSnap.val(), reservationId);
-                          break;
-                        }
-                      } catch (err) {
-                        // Host token isn't readable by a guest until the accept flow moves server-side.
-                        console.error("[OT] Failed to auto-accept reservation with host token:", err);
-                      }
+                    try {
+                      await hostAcceptReservation(viewingInvitedMealId!, reservationId);
+                    } catch (err) {
+                      // Not this user's connection to fix (it's the host's) — just log it.
+                      console.error("[OT] Failed to auto-accept reservation with host token:", err);
                     }
                   }
                 }
@@ -1259,6 +1212,10 @@ export default function App() {
 
       {showAdminStats && (
         <AdminStats onClose={() => setShowAdminStats(false)} />
+      )}
+
+      {showDataSecurity && (
+        <DataSecurityModal onClose={() => setShowDataSecurity(false)} />
       )}
 
 

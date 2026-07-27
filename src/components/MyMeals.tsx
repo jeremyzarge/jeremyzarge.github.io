@@ -4,7 +4,7 @@ import { ref, get, set, remove, onValue } from "firebase/database";
 import type { User } from "firebase/auth";
 import type { Apartment, UserWithId, Meal, LegacyMeal } from "../types";
 import MealEditor from "./MealEditor";
-import { createOTReservation, acceptOTReservation, cancelOTReservation, isOneTableAuthError, OT_RECONNECT_MESSAGE } from "../onetableService";
+import { createOTReservation, cancelOTReservation, isOneTableAuthError, OT_RECONNECT_MESSAGE, hostAcceptReservation } from "../onetableService";
 
 interface MyMealsProps {
   myId: string;
@@ -151,21 +151,12 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
             }
             if (reservationId) {
               await set(ref(rtdb, `meal_events/${mealId}/onetable_reservations/${myId}`), reservationId);
-              const hostIds = Object.entries(mealData.participants ?? {})
-                .filter(([id, p]: [string, any]) => p.role === "host" && id !== myId)
-                .map(([id]) => id);
-              for (const hostId of hostIds) {
-                try {
-                  const hostTokenSnap = await get(ref(rtdb, `private/${hostId}/onetable_token`));
-                  if (hostTokenSnap.exists()) {
-                    await acceptOTReservation(hostTokenSnap.val(), reservationId);
-                    break;
-                  }
-                } catch (err) {
-                  // Host token isn't readable by a guest until the accept flow moves server-side —
-                  // the invite itself still gets accepted above, so don't surface this as a failure.
-                  console.error("[OT] Failed to auto-accept reservation with host token:", err);
-                }
+              try {
+                await hostAcceptReservation(mealId, reservationId);
+              } catch (err) {
+                // Not this user's connection to fix (it's the host's) — the invite itself
+                // still gets accepted above, so don't surface this as a failure.
+                console.error("[OT] Failed to auto-accept reservation with host token:", err);
               }
             }
           }

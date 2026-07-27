@@ -1,13 +1,16 @@
 /**
- * ViteMeals Push Notification Worker
- * Pure Web Crypto — no npm packages required.
+ * ViteMeals Push Notification + OneTable Worker
  *
  * Environment variables to set in Cloudflare dashboard:
  *   VAPID_PUBLIC_KEY   — your VAPID public key (base64url)
  *   VAPID_PRIVATE_KEY  — your VAPID private key (base64url)
  *   VAPID_SUBJECT      — contact email, e.g. "you@example.com"
  *   NOTIFICATION_SECRET — any random string; must match src/notifications.ts
+ *   FIREBASE_SERVICE_ACCOUNT_EMAIL — client_email from your Firebase service account JSON
+ *   FIREBASE_SERVICE_ACCOUNT_KEY   — private_key from the same JSON (PEM, real newlines)
  */
+
+import { jwtVerify, createRemoteJWKSet, SignJWT, importPKCS8 } from "jose";
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
@@ -140,16 +143,149 @@ async function sendWebPush(subscription, payloadStr, vapidPublicKey, vapidPrivat
   }
 }
 
+// ─── Firebase auth (caller identity + admin access) ───────────────────────────
+// These two endpoints act on someone else's OneTable token (the host's, or a
+// removed guest's), which client-side security rules correctly forbid reading
+// directly. This section verifies who's actually calling (their Firebase ID
+// token) and mints the worker's own admin-level Firebase access (via a service
+// account) so it — not the browser — can read the token it needs, after
+// checking the caller is actually allowed to trigger that action.
+
+const FIREBASE_PROJECT_ID = "vitepotlock";
+const FIREBASE_DB_URL = "https://vitepotlock-default-rtdb.firebaseio.com";
+
+const firebaseJWKS = createRemoteJWKSet(
+  new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com")
+);
+
+/** Verifies a Firebase Auth ID token and returns the caller's Firebase uid. */
+async function verifyFirebaseIdToken(idToken) {
+  const { payload } = await jwtVerify(idToken, firebaseJWKS, {
+    issuer: `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`,
+    audience: FIREBASE_PROJECT_ID,
+  });
+  return payload.sub;
+}
+
+let cachedAdminToken = null; // { accessToken, expiresAt } — reused across requests in this isolate
+
+/** Mints (and caches) an OAuth2 access token for the service account, scoped to RTDB. */
+async function getAdminAccessToken(env) {
+  const now = Math.floor(Date.now() / 1000);
+  if (cachedAdminToken && cachedAdminToken.expiresAt > now + 60) {
+    return cachedAdminToken.accessToken;
+  }
+
+  const privateKey = await importPKCS8(env.FIREBASE_SERVICE_ACCOUNT_KEY, "RS256");
+  const assertion = await new SignJWT({
+    scope: "https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/userinfo.email",
+  })
+    .setProtectedHeader({ alg: "RS256" })
+    .setIssuer(env.FIREBASE_SERVICE_ACCOUNT_EMAIL)
+    .setSubject(env.FIREBASE_SERVICE_ACCOUNT_EMAIL)
+    .setAudience("https://oauth2.googleapis.com/token")
+    .setIssuedAt(now)
+    .setExpirationTime(now + 3600)
+    .sign(privateKey);
+
+  const resp = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion,
+    }),
+  });
+  if (!resp.ok) throw new Error(`Admin token mint failed ${resp.status}: ${await resp.text()}`);
+  const data = await resp.json();
+  cachedAdminToken = { accessToken: data.access_token, expiresAt: now + data.expires_in };
+  return cachedAdminToken.accessToken;
+}
+
+/** Admin-privileged read — bypasses RTDB security rules, so callers must be pre-authorized. */
+async function dbGet(path, accessToken) {
+  const resp = await fetch(`${FIREBASE_DB_URL}/${path}.json`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!resp.ok) throw new Error(`Firebase read failed ${resp.status}: ${await resp.text()}`);
+  return resp.json();
+}
+
+/** Admin-privileged delete — same caveat as dbGet. */
+async function dbDelete(path, accessToken) {
+  const resp = await fetch(`${FIREBASE_DB_URL}/${path}.json`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!resp.ok) throw new Error(`Firebase delete failed ${resp.status}: ${await resp.text()}`);
+}
+
+/** Verifies the request's Authorization: Bearer <firebaseIdToken> and resolves it to a numeric user id. */
+async function resolveCallerNumericId(request, accessToken) {
+  const authHeader = request.headers.get("Authorization") || "";
+  const idToken = authHeader.replace(/^Bearer\s+/i, "");
+  if (!idToken) throw new Error("Missing Authorization bearer token");
+  const uid = await verifyFirebaseIdToken(idToken);
+  const numericId = await dbGet(`uid_to_id/${uid}`, accessToken);
+  if (!numericId) throw new Error("No numeric id mapped for this account");
+  return String(numericId);
+}
+
 // ─── Worker Entry Point ───────────────────────────────────────────────────────
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST",
-  "Access-Control-Allow-Headers": "Content-Type, X-Notification-Secret",
+  "Access-Control-Allow-Headers": "Content-Type, X-Notification-Secret, Authorization",
 };
 
 const OT_API = "https://app-prod.internal.onetable.org/graphql";
 const OT_FINGERPRINT = "d15058657f86f919b51f5c6912b88d5c";
+
+function jsonError(message, status) {
+  return new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: { "Content-Type": "application/json", ...corsHeaders },
+  });
+}
+
+/** Shared OneTable GraphQL call, used by both the generic proxy and the host-mediated routes below. */
+async function callOneTable(token, operationName, variables, query) {
+  const resp = await fetch(OT_API, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "x-browser-fingerprint": OT_FINGERPRINT,
+    },
+    body: JSON.stringify({ operationName, variables, query }),
+  });
+  const bodyText = await resp.text();
+  if (!resp.ok) throw new Error(`OneTable upstream ${resp.status}: ${bodyText}`);
+  return JSON.parse(bodyText);
+}
+
+const ACCEPT_RESERVATION_QUERY = `
+  mutation acceptReservation($id: Int, $reservationIds: [Int!], $message: Html) {
+    acceptReservation(input: { id: $id, reservationIds: $reservationIds, message: $message }) {
+      reservation { id state profile { id } event { id } }
+      errors { reservationId message }
+    }
+  }
+`;
+
+const CANCEL_RESERVATION_QUERY = `
+  mutation cancelReservation($reservationId: Int!, $cancelReason: String, $cancelReasonText: String) {
+    cancelReservation(input: {
+      id: $reservationId,
+      cancelReason: $cancelReason,
+      cancelReasonText: $cancelReasonText
+    }) {
+      reservation { id state }
+      errors { message }
+    }
+  }
+`;
 
 export default {
   async fetch(request, env) {
@@ -162,36 +298,95 @@ export default {
 
     const url = new URL(request.url);
 
+    // ─── Host-mediated OneTable actions ───────────────────────────────────────
+    // These read someone else's onetable_token (the host's, or a removed
+    // guest's) using the worker's admin access, after verifying the caller's
+    // Firebase identity and that they're actually authorized for this meal.
+
+    if (url.pathname === "/onetable/host-accept-reservation") {
+      try {
+        const { mealId, reservationId } = await request.json();
+        const accessToken = await getAdminAccessToken(env);
+        const callerId = await resolveCallerNumericId(request, accessToken);
+
+        const meal = await dbGet(`meal_events/${mealId}`, accessToken);
+        if (!meal) return jsonError("Meal not found", 404);
+        if (meal.onetable_reservations?.[callerId] !== reservationId) {
+          return jsonError("That reservation doesn't belong to you", 403);
+        }
+
+        const hostIds = Object.entries(meal.participants || {})
+          .filter(([, p]) => p.role === "host")
+          .map(([id]) => id);
+
+        for (const hostId of hostIds) {
+          const hostToken = await dbGet(`private/${hostId}/onetable_token`, accessToken);
+          if (hostToken) {
+            const data = await callOneTable(hostToken, "acceptReservation", {
+              id: reservationId,
+              reservationIds: [],
+              message: "",
+            }, ACCEPT_RESERVATION_QUERY);
+            if (data.errors?.length) return jsonError(data.errors[0].message, 502);
+            const errs = data.data?.acceptReservation?.errors;
+            if (errs?.length) return jsonError(errs[0].message, 502);
+            return new Response(JSON.stringify({ success: true }), {
+              headers: { "Content-Type": "application/json", ...corsHeaders },
+            });
+          }
+        }
+        return jsonError("No host has a connected OneTable account", 409);
+      } catch (err) {
+        console.error("host-accept-reservation error:", err);
+        return jsonError(err.message, 500);
+      }
+    }
+
+    if (url.pathname === "/onetable/host-cancel-reservation") {
+      try {
+        const { mealId, removedUserId, reservationId } = await request.json();
+        const accessToken = await getAdminAccessToken(env);
+        const callerId = await resolveCallerNumericId(request, accessToken);
+
+        const meal = await dbGet(`meal_events/${mealId}`, accessToken);
+        if (!meal) return jsonError("Meal not found", 404);
+        if (meal.participants?.[callerId]?.role !== "host") {
+          return jsonError("Only a host can do this", 403);
+        }
+        if (meal.onetable_reservations?.[removedUserId] !== reservationId) {
+          return jsonError("Reservation mismatch", 403);
+        }
+
+        const removedToken = await dbGet(`private/${removedUserId}/onetable_token`, accessToken);
+        if (removedToken) {
+          const data = await callOneTable(removedToken, "cancelReservation", {
+            reservationId,
+            cancelReason: "",
+            cancelReasonText: "",
+          }, CANCEL_RESERVATION_QUERY);
+          if (data.errors?.length) return jsonError(data.errors[0].message, 502);
+        }
+        await dbDelete(`meal_events/${mealId}/onetable_reservations/${removedUserId}`, accessToken);
+        return new Response(JSON.stringify({ success: true }), {
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        });
+      } catch (err) {
+        console.error("host-cancel-reservation error:", err);
+        return jsonError(err.message, 500);
+      }
+    }
+
     // ─── OneTable API proxy ───────────────────────────────────────────────────
     if (url.pathname === "/onetable") {
       try {
         const { token, operationName, variables, query } = await request.json();
-        const otResp = await fetch(OT_API, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${token}`,
-            "Content-Type": "application/json",
-            "x-browser-fingerprint": OT_FINGERPRINT,
-          },
-          body: JSON.stringify({ operationName, variables, query }),
-        });
-        const bodyText = await otResp.text();
-        if (!otResp.ok) {
-          console.error(`OneTable upstream ${otResp.status}:`, bodyText);
-          return new Response(
-            JSON.stringify({ error: `OneTable upstream ${otResp.status}`, upstreamBody: bodyText }),
-            { status: 502, headers: { "Content-Type": "application/json", ...corsHeaders } }
-          );
-        }
-        return new Response(bodyText, {
+        const data = await callOneTable(token, operationName, variables, query);
+        return new Response(JSON.stringify(data), {
           headers: { "Content-Type": "application/json", ...corsHeaders },
         });
       } catch (err) {
         console.error("OneTable proxy error:", err);
-        return new Response(JSON.stringify({ error: err.message }), {
-          status: 500,
-          headers: { "Content-Type": "application/json", ...corsHeaders },
-        });
+        return jsonError(err.message, 502);
       }
     }
 
