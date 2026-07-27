@@ -27,7 +27,7 @@ import {
   requestToJoinApartment,
   cancelJoinRequest,
 } from "./apartmentService";
-import { createOTReservation, acceptOTReservation, cancelOTReservation } from "./onetableService";
+import { createOTReservation, acceptOTReservation, cancelOTReservation, isOneTableAuthError, OT_RECONNECT_MESSAGE } from "./onetableService";
 import NotificationPrefsModal from "./components/NotificationPrefsModal";
 import AdminStats from "./components/AdminStats";
 
@@ -1167,32 +1167,38 @@ export default function App() {
 
               // OneTable: create reservation and auto-accept with host token
               if (mealData.onetable_event_id) {
-                try {
-                  const guestTokenSnap = await get(ref(rtdb, `private/${myId}/onetable_token`));
-                  if (guestTokenSnap.exists()) {
-                    const reservationId = await createOTReservation(
+                const guestTokenSnap = await get(ref(rtdb, `private/${myId}/onetable_token`));
+                if (guestTokenSnap.exists()) {
+                  let reservationId: number | null = null;
+                  try {
+                    reservationId = await createOTReservation(
                       guestTokenSnap.val(),
                       mealData.onetable_event_id
                     );
-                    if (reservationId) {
-                      await set(
-                        ref(rtdb, `meal_events/${viewingInvitedMealId}/onetable_reservations/${myId}`),
-                        reservationId
-                      );
-                      // Auto-accept using the first host with an OT token
-                      for (const hostId of hostIds) {
+                  } catch (err) {
+                    // Don't let this block the notification/close below.
+                    if (isOneTableAuthError(err)) alert(OT_RECONNECT_MESSAGE);
+                    else console.error("[OT] Failed to create reservation on accept:", err);
+                  }
+                  if (reservationId) {
+                    await set(
+                      ref(rtdb, `meal_events/${viewingInvitedMealId}/onetable_reservations/${myId}`),
+                      reservationId
+                    );
+                    // Auto-accept using the first host with an OT token
+                    for (const hostId of hostIds) {
+                      try {
                         const hostTokenSnap = await get(ref(rtdb, `private/${hostId}/onetable_token`));
                         if (hostTokenSnap.exists()) {
                           await acceptOTReservation(hostTokenSnap.val(), reservationId);
                           break;
                         }
+                      } catch (err) {
+                        // Host token isn't readable by a guest until the accept flow moves server-side.
+                        console.error("[OT] Failed to auto-accept reservation with host token:", err);
                       }
                     }
                   }
-                } catch (err) {
-                  // Host token isn't readable by a guest until the accept flow moves server-side —
-                  // don't let that block the notification/close below.
-                  console.error("[OT] Failed to sync reservation on accept:", err);
                 }
               }
 
@@ -1220,8 +1226,13 @@ export default function App() {
               if (reservationId) {
                 const tokenSnap = await get(ref(rtdb, `private/${myId}/onetable_token`));
                 if (tokenSnap.exists()) {
-                  await cancelOTReservation(tokenSnap.val(), reservationId);
-                  await remove(ref(rtdb, `meal_events/${viewingInvitedMealId}/onetable_reservations/${myId}`));
+                  try {
+                    await cancelOTReservation(tokenSnap.val(), reservationId);
+                    await remove(ref(rtdb, `meal_events/${viewingInvitedMealId}/onetable_reservations/${myId}`));
+                  } catch (err) {
+                    if (isOneTableAuthError(err)) alert(OT_RECONNECT_MESSAGE);
+                    else console.error("[OT] Failed to cancel reservation on reject:", err);
+                  }
                 }
               }
 

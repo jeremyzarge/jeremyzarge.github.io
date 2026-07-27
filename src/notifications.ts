@@ -7,11 +7,11 @@ import { rtdb } from "./firebaseClient";
 const VAPID_PUBLIC_KEY = "BB8_4h8I3GIIXoNjUZFH6dHay0CyG2Zxd1wi7oYhESunWNooQfZtaQ6-Ixz-cXFeaG09ISfn-e-8N9gQ24zPLFU";
 
 // After deploying the Cloudflare Worker, paste its URL here:
-const WORKER_URL = "https://vitemeals-notifications.vitemeals.workers.dev";
+export const WORKER_URL = "https://vitemeals-notifications.vitemeals.workers.dev";
 
 // Pick any random string — paste the same value into the Worker's
 // NOTIFICATION_SECRET environment variable via:  npx wrangler secret put NOTIFICATION_SECRET
-const NOTIFICATION_SECRET = "b3c9cfae63e6dc6a1922c342dd90964d";
+export const NOTIFICATION_SECRET = "b3c9cfae63e6dc6a1922c342dd90964d";
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**

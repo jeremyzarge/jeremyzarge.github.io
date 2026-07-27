@@ -1,7 +1,26 @@
 import type { Meal } from "./types";
+import { WORKER_URL, NOTIFICATION_SECRET } from "./notifications";
 
-const OT_API = "https://app-prod.internal.onetable.org/graphql";
-const OT_FINGERPRINT = "d15058657f86f919b51f5c6912b88d5c";
+// OneTable's API has no CORS allowance for browser origins, so requests are
+// routed through the Cloudflare Worker (same one used for push), which calls
+// OneTable server-side and returns the result with CORS headers attached.
+
+/** Thrown when OneTable rejects a request because the bearer token is expired/invalid. */
+export class OneTableAuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OneTableAuthError";
+  }
+}
+
+export function isOneTableAuthError(err: unknown): err is OneTableAuthError {
+  return err instanceof OneTableAuthError;
+}
+
+export const OT_RECONNECT_MESSAGE =
+  "Your OneTable connection has expired. Please reconnect it from your profile.";
+
+const AUTH_ERROR_PATTERN = /unauthenticated|invalid.*token|please log in/i;
 
 async function otRequest(
   token: string,
@@ -9,17 +28,21 @@ async function otRequest(
   variables: Record<string, unknown>,
   query: string
 ): Promise<any> {
-  const resp = await fetch(OT_API, {
+  const resp = await fetch(`${WORKER_URL}/onetable`, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${token}`,
       "Content-Type": "application/json",
-      "x-browser-fingerprint": OT_FINGERPRINT,
+      "X-Notification-Secret": NOTIFICATION_SECRET,
     },
-    body: JSON.stringify({ operationName, variables, query }),
+    body: JSON.stringify({ token, operationName, variables, query }),
   });
   if (!resp.ok) throw new Error(`OneTable API error: ${resp.status}`);
-  return resp.json();
+  const data = await resp.json();
+  const message = data?.errors?.[0]?.message;
+  if (message && AUTH_ERROR_PATTERN.test(message)) {
+    throw new OneTableAuthError(message);
+  }
+  return data;
 }
 
 export type OTLocation = {
@@ -652,6 +675,7 @@ export async function updateOTEvent(
     if (result?.errors?.length) throw new Error(result.errors[0]?.message);
     return true;
   } catch (err: any) {
+    if (isOneTableAuthError(err)) throw err;
     console.error("[OT] updateEvent failed:", err.message);
     return false;
   }
@@ -764,6 +788,7 @@ export async function createOTReservation(
     if (result?.errors?.length) throw new Error(result.errors[0]?.message);
     return result?.reservation?.id ?? null;
   } catch (err: any) {
+    if (isOneTableAuthError(err)) throw err;
     console.error("[OT] createReservation failed:", err.message);
     return null;
   }
@@ -793,6 +818,7 @@ export async function acceptOTReservation(
     if (errs?.length) { console.error("[OT] acceptReservation result errors:", errs); return false; }
     return true;
   } catch (err: any) {
+    if (isOneTableAuthError(err)) throw err;
     console.error("[OT] acceptReservation failed:", err.message);
     return false;
   }
@@ -824,7 +850,8 @@ export async function cancelOTReservation(
     }, CANCEL_RESERVATION_QUERY);
     if (data.errors) return false;
     return !(data.data?.cancelReservation?.errors?.length);
-  } catch {
+  } catch (err) {
+    if (isOneTableAuthError(err)) throw err;
     return false;
   }
 }
@@ -853,7 +880,8 @@ export async function cancelOTEvent(
       cancelReasonText: "",
     }, CANCEL_EVENT_QUERY);
     return !data.errors;
-  } catch {
+  } catch (err) {
+    if (isOneTableAuthError(err)) throw err;
     return false;
   }
 }

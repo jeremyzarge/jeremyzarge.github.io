@@ -4,7 +4,7 @@ import { ref, get, set, remove, onValue } from "firebase/database";
 import type { User } from "firebase/auth";
 import type { Apartment, UserWithId, Meal, LegacyMeal } from "../types";
 import MealEditor from "./MealEditor";
-import { createOTReservation, acceptOTReservation, cancelOTReservation } from "../onetableService";
+import { createOTReservation, acceptOTReservation, cancelOTReservation, isOneTableAuthError, OT_RECONNECT_MESSAGE } from "../onetableService";
 
 interface MyMealsProps {
   myId: string;
@@ -140,28 +140,34 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
         const mealData = mealSnap.val();
 
         if (mealData.onetable_event_id) {
-          try {
-            const guestTokenSnap = await get(ref(rtdb, `private/${myId}/onetable_token`));
-            if (guestTokenSnap.exists()) {
-              const reservationId = await createOTReservation(guestTokenSnap.val(), mealData.onetable_event_id);
-              if (reservationId) {
-                await set(ref(rtdb, `meal_events/${mealId}/onetable_reservations/${myId}`), reservationId);
-                const hostIds = Object.entries(mealData.participants ?? {})
-                  .filter(([id, p]: [string, any]) => p.role === "host" && id !== myId)
-                  .map(([id]) => id);
-                for (const hostId of hostIds) {
+          const guestTokenSnap = await get(ref(rtdb, `private/${myId}/onetable_token`));
+          if (guestTokenSnap.exists()) {
+            let reservationId: number | null = null;
+            try {
+              reservationId = await createOTReservation(guestTokenSnap.val(), mealData.onetable_event_id);
+            } catch (err) {
+              if (isOneTableAuthError(err)) alert(OT_RECONNECT_MESSAGE);
+              else console.error("[OT] Failed to create reservation on accept:", err);
+            }
+            if (reservationId) {
+              await set(ref(rtdb, `meal_events/${mealId}/onetable_reservations/${myId}`), reservationId);
+              const hostIds = Object.entries(mealData.participants ?? {})
+                .filter(([id, p]: [string, any]) => p.role === "host" && id !== myId)
+                .map(([id]) => id);
+              for (const hostId of hostIds) {
+                try {
                   const hostTokenSnap = await get(ref(rtdb, `private/${hostId}/onetable_token`));
                   if (hostTokenSnap.exists()) {
                     await acceptOTReservation(hostTokenSnap.val(), reservationId);
                     break;
                   }
+                } catch (err) {
+                  // Host token isn't readable by a guest until the accept flow moves server-side —
+                  // the invite itself still gets accepted above, so don't surface this as a failure.
+                  console.error("[OT] Failed to auto-accept reservation with host token:", err);
                 }
               }
             }
-          } catch (err) {
-            // Host token isn't readable by a guest until the accept flow moves server-side —
-            // the invite itself still gets accepted above, so don't surface this as a failure.
-            console.error("[OT] Failed to sync reservation on accept:", err);
           }
         }
       }
@@ -191,8 +197,13 @@ export default function MyMeals({ myId, users, apartments, mode, authUser, frien
         if (reservationId) {
           const tokenSnap = await get(ref(rtdb, `private/${myId}/onetable_token`));
           if (tokenSnap.exists()) {
-            await cancelOTReservation(tokenSnap.val(), reservationId);
-            await remove(ref(rtdb, `meal_events/${mealId}/onetable_reservations/${myId}`));
+            try {
+              await cancelOTReservation(tokenSnap.val(), reservationId);
+              await remove(ref(rtdb, `meal_events/${mealId}/onetable_reservations/${myId}`));
+            } catch (err) {
+              if (isOneTableAuthError(err)) alert(OT_RECONNECT_MESSAGE);
+              else throw err;
+            }
           }
         }
       }

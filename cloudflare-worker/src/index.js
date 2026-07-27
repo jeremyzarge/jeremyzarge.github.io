@@ -175,8 +175,15 @@ export default {
           },
           body: JSON.stringify({ operationName, variables, query }),
         });
-        const data = await otResp.json();
-        return new Response(JSON.stringify(data), {
+        const bodyText = await otResp.text();
+        if (!otResp.ok) {
+          console.error(`OneTable upstream ${otResp.status}:`, bodyText);
+          return new Response(
+            JSON.stringify({ error: `OneTable upstream ${otResp.status}`, upstreamBody: bodyText }),
+            { status: 502, headers: { "Content-Type": "application/json", ...corsHeaders } }
+          );
+        }
+        return new Response(bodyText, {
           headers: { "Content-Type": "application/json", ...corsHeaders },
         });
       } catch (err) {

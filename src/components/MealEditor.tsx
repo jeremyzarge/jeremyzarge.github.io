@@ -6,7 +6,7 @@ import { rtdb } from "../firebaseClient";
 import { fetchAllUsers, fetchAllApartments, fetchAddressSuggestions, getAllergenCounts, formatFood } from "../utils";
 import { generateMealInviteUrl } from "../inviteService";
 import { createMeal } from "../index";
-import { createOTEvent, updateOTEvent, requestOTNourishment, cancelOTEvent, cancelOTReservation } from "../onetableService";
+import { createOTEvent, updateOTEvent, requestOTNourishment, cancelOTEvent, cancelOTReservation, isOneTableAuthError, OT_RECONNECT_MESSAGE } from "../onetableService";
 import type { User } from "firebase/auth";
 import type { Meal, MealParticipant, UserWithId, Apartment, FoodRequestItem } from "../types";
 import ClickableUserName from "./ClickableUserName";
@@ -616,8 +616,13 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         if (reservationId) {
           const tokenSnap = await get(ref(rtdb, `private/${currentUserId}/onetable_token`));
           if (tokenSnap.exists()) {
-            await cancelOTReservation(tokenSnap.val(), reservationId);
-            await remove(ref(rtdb, `meal_events/${mealId}/onetable_reservations/${currentUserId}`));
+            try {
+              await cancelOTReservation(tokenSnap.val(), reservationId);
+              await remove(ref(rtdb, `meal_events/${mealId}/onetable_reservations/${currentUserId}`));
+            } catch (err) {
+              if (isOneTableAuthError(err)) alert(OT_RECONNECT_MESSAGE);
+              else throw err;
+            }
           }
         }
 
@@ -876,7 +881,11 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
             }
           } catch (otErr: any) {
             // Non-blocking — meal was created, just warn about OneTable
-            alert(`Meal created, but OneTable sync failed: ${otErr.message}`);
+            alert(
+              isOneTableAuthError(otErr)
+                ? `Meal created, but OneTable sync failed: ${OT_RECONNECT_MESSAGE}`
+                : `Meal created, but OneTable sync failed: ${otErr.message}`
+            );
           }
         }
 
@@ -967,7 +976,10 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
             { full_address: meal.location?.trim() || aptAddress, lat: otLat, lng: otLng },
             meal,
             meal.onetable_description
-          ).catch((err) => console.error("[OT] updateEvent failed silently:", err));
+          ).catch((err) => {
+            if (isOneTableAuthError(err)) alert(OT_RECONNECT_MESSAGE);
+            else console.error("[OT] updateEvent failed silently:", err);
+          });
         }
 
         if (originalMeal && meal.location !== originalMeal.location) {
@@ -1097,7 +1109,12 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
       if (meal.onetable_event_id && currentUserId) {
         const hostTokenSnap = await get(ref(rtdb, `private/${currentUserId}/onetable_token`));
         if (hostTokenSnap.exists()) {
-          await cancelOTEvent(hostTokenSnap.val(), meal.onetable_event_id);
+          try {
+            await cancelOTEvent(hostTokenSnap.val(), meal.onetable_event_id);
+          } catch (err) {
+            if (isOneTableAuthError(err)) alert(OT_RECONNECT_MESSAGE);
+            else throw err;
+          }
         }
       }
 
@@ -1164,7 +1181,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         setOtNourishment(false);
       }
     } catch (err: any) {
-      alert("OneTable sync failed: " + err.message);
+      alert(isOneTableAuthError(err) ? OT_RECONNECT_MESSAGE : "OneTable sync failed: " + err.message);
     } finally {
       setOtSyncing(false);
     }
