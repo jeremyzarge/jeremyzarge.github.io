@@ -3,7 +3,7 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { ref, get, set, remove, update, onValue } from "firebase/database";
 import { rtdb } from "../firebaseClient";
-import { fetchAllUsers, fetchAllApartments, fetchAddressSuggestions, getAllergenCounts, formatFood } from "../utils";
+import { fetchAllUsers, fetchAllApartments, fetchAddressSuggestions, getAllergenCounts, formatFood, buildCalendarLinks } from "../utils";
 import { generateMealInviteUrl } from "../inviteService";
 import { createMeal } from "../index";
 import { createOTEvent, updateOTEvent, requestOTNourishment, cancelOTEvent, cancelOTReservation, isOneTableAuthError, OT_RECONNECT_MESSAGE, hostCancelReservation } from "../onetableService";
@@ -1665,6 +1665,62 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                   Date is locked — this meal is synced with OneTable. Unsync or delete and recreate to change the date.
                 </div>
               )}
+              {meal.datetime && (() => {
+                const { googleUrl, icsDataUrl } = buildCalendarLinks({ ...meal, datetime: meal.datetime });
+                return (
+                  <div className="calendar-links-row" style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "nowrap" }}>
+                    <a
+                      href={googleUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="calendar-link-btn"
+                      style={{
+                        flex: "1 1 0",
+                        minWidth: 0,
+                        display: "block",
+                        textAlign: "center",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        padding: "8px 16px",
+                        borderRadius: 10,
+                        border: "2px solid #a78bfa",
+                        background: "white",
+                        color: "#5b21b6",
+                        fontWeight: 700,
+                        fontSize: "0.85rem",
+                        textDecoration: "none",
+                      }}
+                    >
+                      📅 Add to Google Calendar
+                    </a>
+                    <a
+                      href={icsDataUrl}
+                      download={`${meal.title || "meal"}.ics`}
+                      className="calendar-link-btn"
+                      style={{
+                        flex: "1 1 0",
+                        minWidth: 0,
+                        display: "block",
+                        textAlign: "center",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        padding: "8px 16px",
+                        borderRadius: 10,
+                        border: "2px solid #a78bfa",
+                        background: "white",
+                        color: "#5b21b6",
+                        fontWeight: 700,
+                        fontSize: "0.85rem",
+                        textDecoration: "none",
+                      }}
+                    >
+                      📅 Add to Apple Calendar
+                    </a>
+                  </div>
+                );
+              })()}
             </div>
 
             <div

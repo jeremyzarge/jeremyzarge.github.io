@@ -681,7 +681,7 @@ export default function App() {
           <HeaderPillButton
             onClick={() => { if (myId) removePushSubscription(myId); localStorage.setItem("manually_signed_out", "1"); signOut(auth); }}
           >
-            Sign Out
+            👋 Sign Out
           </HeaderPillButton>
         </div>
       </div>
@@ -984,7 +984,7 @@ export default function App() {
               maxWidth: 280,
             }}
           >
-            Sign Out
+            👋 Sign Out
           </button>
         </div>
       )}

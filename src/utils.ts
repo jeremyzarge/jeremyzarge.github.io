@@ -219,6 +219,60 @@ export function formatApartmentName(apt: Apartment): string {
   return `${apt.name} - ${apt.address}`;
 }
 
+/** Default meal length used for calendar events (matches OneTable's 2-hour default). */
+const CALENDAR_EVENT_DURATION_MS = 2 * 60 * 60 * 1000;
+
+/** Formats a Date as UTC "YYYYMMDDTHHMMSSZ" for Google Calendar / ICS. */
+function toCalendarUtc(date: Date): string {
+  return date.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+}
+
+/**
+ * Builds an "Add to Calendar" URL/data-URI pair for a meal.
+ * @param meal - title, ISO datetime, optional location/instructions
+ * @returns Google Calendar URL and an .ics data URI (for Apple/Outlook/etc.)
+ */
+export function buildCalendarLinks(meal: {
+  title: string;
+  datetime: string;
+  location?: string;
+  instructions?: string;
+}): { googleUrl: string; icsDataUrl: string } {
+  const start = new Date(meal.datetime);
+  const end = new Date(start.getTime() + CALENDAR_EVENT_DURATION_MS);
+  const startUtc = toCalendarUtc(start);
+  const endUtc = toCalendarUtc(end);
+  const details = meal.instructions || "";
+  const location = meal.location || "";
+
+  const googleUrl = `https://calendar.google.com/calendar/render?${new URLSearchParams({
+    action: "TEMPLATE",
+    text: meal.title,
+    dates: `${startUtc}/${endUtc}`,
+    details,
+    location,
+  })}`;
+
+  const icsLines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//ViteMeals//EN",
+    "BEGIN:VEVENT",
+    `UID:${startUtc}-${Math.random().toString(36).slice(2)}@vitemeals`,
+    `DTSTAMP:${toCalendarUtc(new Date())}`,
+    `DTSTART:${startUtc}`,
+    `DTEND:${endUtc}`,
+    `SUMMARY:${meal.title.replace(/\r?\n/g, " ")}`,
+    ...(details ? [`DESCRIPTION:${details.replace(/\r?\n/g, "\\n")}`] : []),
+    ...(location ? [`LOCATION:${location.replace(/\r?\n/g, " ")}`] : []),
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
+  const icsDataUrl = `data:text/calendar;charset=utf-8,${encodeURIComponent(icsLines)}`;
+
+  return { googleUrl, icsDataUrl };
+}
+
 /**
  * Gets all allergens from a list of user IDs
  * @param userIds - Array of user numeric IDs
