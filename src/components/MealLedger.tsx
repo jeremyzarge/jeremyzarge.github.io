@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ref, get } from "firebase/database";
 import { rtdb } from "../firebaseClient";
-import { fetchAllUsers, fetchAllApartments } from "../utils";
+import { fetchAllUsers, fetchAllApartments, getUpcomingShabbatWindows } from "../utils";
 import type { Apartment, UserWithId, ApartmentWithData } from "../types";
 import MealList from "./MealList";
 
@@ -21,6 +21,7 @@ type UserWithApartment = Omit<UserWithId, "apartment"> & {
  */
 export default function MealLedger({ currentUserId, friendIds, onViewProfile, onViewApartment }: MealLedgerProps) {
   const [meals, setMeals] = useState<Record<string, number> | null>(null);
+  const [weekStatus, setWeekStatus] = useState<Record<string, { dinnerBusy: boolean; lunchBusy: boolean }>>({});
   const [users, setUsers] = useState<UserWithApartment[] | null>(null);
   const [apartments, setApartments] = useState<Apartment[] | null>(null);
   const [currentUserApartmentId, setCurrentUserApartmentId] = useState<string | null>(null);
@@ -92,6 +93,28 @@ export default function MealLedger({ currentUserId, friendIds, onViewProfile, on
         }));
 
       setUsers(otherUsers);
+
+      // This week's Shabbat dinner/lunch status per user (manual override, else derived from meal signups)
+      const { dinnerStart, dinnerEnd, lunchStart, lunchEnd } = getUpcomingShabbatWindows();
+      const allMeals = mealsSnap.exists() ? (mealsSnap.val() as Record<string, any>) : {};
+      const status: Record<string, { dinnerBusy: boolean; lunchBusy: boolean }> = {};
+      for (const user of otherUsers) {
+        let attendsDinner = false;
+        let attendsLunch = false;
+        for (const meal of Object.values(allMeals)) {
+          const theirs = (meal.participants || {})[user.id];
+          if (theirs?.accepted === true && meal.datetime) {
+            const dt = new Date(meal.datetime);
+            if (dt >= dinnerStart && dt < dinnerEnd) attendsDinner = true;
+            if (dt >= lunchStart && dt < lunchEnd) attendsLunch = true;
+          }
+        }
+        status[user.id] = {
+          dinnerBusy: user.dinner_status === "busy" ? true : user.dinner_status === "free" ? false : attendsDinner,
+          lunchBusy: user.lunch_status === "busy" ? true : user.lunch_status === "free" ? false : attendsLunch,
+        };
+      }
+      setWeekStatus(status);
     }
 
     fetchData();
@@ -175,7 +198,7 @@ export default function MealLedger({ currentUserId, friendIds, onViewProfile, on
       </div>
 
       {view === "users" && (
-        <MealList meals={meals} otherUsers={users} showApartment={true} onViewProfile={onViewProfile} onViewApartment={onViewApartment} />
+        <MealList meals={meals} otherUsers={users} showApartment={true} onViewProfile={onViewProfile} onViewApartment={onViewApartment} weekStatus={weekStatus} />
       )}
 
       {view === "apartments" && (

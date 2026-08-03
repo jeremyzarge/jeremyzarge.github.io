@@ -3,7 +3,7 @@
  */
 
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, signInWithPopup, type User } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult } from "firebase/auth";
 import { getDatabase, ref, get, set, update, type Database } from "firebase/database";
 
 const firebaseConfig = {
@@ -24,13 +24,22 @@ provider.setCustomParameters({ prompt: "select_account" });
 export const rtdb: Database = getDatabase(app);
 
 /**
- * Initiates Google OAuth login flow
- * @returns Promise resolving to authenticated Firebase user
+ * Initiates Google OAuth login via full-page redirect (rather than a popup).
+ * Popups rely on sessionStorage being shared between the popup and opener,
+ * which Safari/iOS and in-app browsers (Instagram, Facebook, etc.) often
+ * block — that's the cause of Firebase's "missing initial state" error.
+ * Redirect avoids that entirely; auth.onAuthStateChanged picks up the
+ * signed-in user once the browser navigates back.
  */
-export async function loginWithGoogle(): Promise<User> {
-  const res = await signInWithPopup(auth, provider);
-  return res.user;
+export async function loginWithGoogle(): Promise<void> {
+  await signInWithRedirect(auth, provider);
 }
+
+// Surface any error from a completed redirect sign-in (e.g. account-exists-
+// with-different-credential). Successful sign-in is handled by onAuthStateChanged.
+getRedirectResult(auth).catch((err) => {
+  console.error("Google sign-in redirect failed:", err);
+});
 
 /**
  * Gets the next available numeric ID for a given database path

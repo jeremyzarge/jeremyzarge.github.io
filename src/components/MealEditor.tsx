@@ -1696,7 +1696,8 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                     </a>
                     <a
                       href={icsDataUrl}
-                      download={`${meal.title || "meal"}.ics`}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="calendar-link-btn"
                       style={{
                         flex: "1 1 0",

@@ -857,7 +857,9 @@ export default function ApartmentProfileView({
             <div>
               <SectionTitle text={`Meals (${meals.length})`} />
               {meals.length === 0 ? (
-                <p style={{ color: "#9ca3af", margin: 0, fontSize: "0.85rem" }}>No meals hosted here</p>
+                <p style={{ color: "#9ca3af", margin: 0, fontSize: "0.85rem" }}>
+                  {isMember ? "No meals hosted here" : "No meals attended here"}
+                </p>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                   {upcomingMeals.length > 0 && (

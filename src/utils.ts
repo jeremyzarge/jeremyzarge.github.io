@@ -104,22 +104,51 @@ export const formatFood = (food: string): string => {
   return `🍽️ ${label}`;
 };
 
+const US_STATE_ABBREVIATIONS: Record<string, string> = {
+  Alabama: "AL", Alaska: "AK", Arizona: "AZ", Arkansas: "AR", California: "CA",
+  Colorado: "CO", Connecticut: "CT", Delaware: "DE", "District of Columbia": "DC",
+  Florida: "FL", Georgia: "GA", Hawaii: "HI", Idaho: "ID", Illinois: "IL",
+  Indiana: "IN", Iowa: "IA", Kansas: "KS", Kentucky: "KY", Louisiana: "LA",
+  Maine: "ME", Maryland: "MD", Massachusetts: "MA", Michigan: "MI",
+  Minnesota: "MN", Mississippi: "MS", Missouri: "MO", Montana: "MT",
+  Nebraska: "NE", Nevada: "NV", "New Hampshire": "NH", "New Jersey": "NJ",
+  "New Mexico": "NM", "New York": "NY", "North Carolina": "NC",
+  "North Dakota": "ND", Ohio: "OH", Oklahoma: "OK", Oregon: "OR",
+  Pennsylvania: "PA", "Rhode Island": "RI", "South Carolina": "SC",
+  "South Dakota": "SD", Tennessee: "TN", Texas: "TX", Utah: "UT",
+  Vermont: "VT", Virginia: "VA", Washington: "WA", "West Virginia": "WV",
+  Wisconsin: "WI", Wyoming: "WY",
+};
+
+/** Builds a short "123 Main St, City, ST 12345" label from a Nominatim address object. */
+function formatNominatimAddress(r: any): string {
+  const addr = r.address ?? {};
+  const street = [addr.house_number, addr.road].filter(Boolean).join(" ");
+  const city = addr.city || addr.town || addr.village || addr.hamlet || addr.suburb || "";
+  const state = addr.state ? (US_STATE_ABBREVIATIONS[addr.state] ?? addr.state) : "";
+  const cityStateZip = [city, [state, addr.postcode].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  const parts = [street, cityStateZip].filter(Boolean);
+
+  if (parts.length >= 2) return parts.join(", ");
+
+  // Fall back to the full display name (minus the trailing country) if we
+  // couldn't assemble a clean short form, e.g. for POIs without a street address.
+  let label: string = r.display_name ?? "";
+  const usIdx = label.indexOf(", United States");
+  if (usIdx > 0) label = label.substring(0, usIdx);
+  return label;
+}
+
 /** Fetch address suggestions from Nominatim (OpenStreetMap), anywhere in the US. */
 export async function fetchAddressSuggestions(query: string): Promise<string[]> {
   if (!query || query.length < 3) return [];
   const res = await fetch(
-    `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=us&limit=6`,
+    `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&countrycodes=us&limit=6`,
     { headers: { Accept: "application/json" } }
   );
   const data = await res.json();
   return (data || [])
-    .map((r: any) => {
-      let label: string = r.display_name ?? "";
-      // Strip trailing ", United States" — country is implied
-      const usIdx = label.indexOf(", United States");
-      if (usIdx > 0) label = label.substring(0, usIdx);
-      return label;
-    })
+    .map(formatNominatimAddress)
     .filter(Boolean) as string[];
 }
 
@@ -208,6 +237,46 @@ export function createDefaultCanBring(): CanBring {
  */
 export function formatNumber(num: number): string {
   return Number.isInteger(num) ? num.toString() : num.toFixed(2);
+}
+
+/**
+ * Computes the datetime windows for this (or next, if already past) Shabbat's
+ * two meals: Friday dinner (5pm-midnight) and Saturday lunch (noon-3pm).
+ */
+export function getUpcomingShabbatWindows() {
+  const now = new Date();
+  const dayOfWeek = now.getDay();
+  // How many days since last Friday (0 if today is Friday)
+  const daysFromFriday = (dayOfWeek - 5 + 7) % 7;
+
+  const thisFriday = new Date(now);
+  thisFriday.setDate(now.getDate() - daysFromFriday);
+  thisFriday.setHours(0, 0, 0, 0);
+
+  // Dinner: Friday 5 pm → Saturday midnight
+  const dinnerStart = new Date(thisFriday);
+  dinnerStart.setHours(17, 0, 0, 0);
+  const dinnerEnd = new Date(thisFriday);
+  dinnerEnd.setDate(thisFriday.getDate() + 1);
+  dinnerEnd.setHours(0, 0, 0, 0);
+
+  // Lunch: Saturday noon → 3 pm
+  const lunchStart = new Date(thisFriday);
+  lunchStart.setDate(thisFriday.getDate() + 1);
+  lunchStart.setHours(12, 0, 0, 0);
+  const lunchEnd = new Date(thisFriday);
+  lunchEnd.setDate(thisFriday.getDate() + 1);
+  lunchEnd.setHours(15, 0, 0, 0);
+
+  // If this week's Shabbat is fully over, advance to next week
+  if (now > lunchEnd) {
+    dinnerStart.setDate(dinnerStart.getDate() + 7);
+    dinnerEnd.setDate(dinnerEnd.getDate() + 7);
+    lunchStart.setDate(lunchStart.getDate() + 7);
+    lunchEnd.setDate(lunchEnd.getDate() + 7);
+  }
+
+  return { dinnerStart, dinnerEnd, lunchStart, lunchEnd };
 }
 
 /**
