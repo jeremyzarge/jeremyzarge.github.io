@@ -10,7 +10,7 @@ import { createOTEvent, updateOTEvent, requestOTNourishment, cancelOTEvent, canc
 import type { User } from "firebase/auth";
 import type { Meal, MealParticipant, UserWithId, Apartment, FoodRequestItem } from "../types";
 import ClickableUserName from "./ClickableUserName";
-import { notifyUsers } from "../notifications";
+import { notifyUsers, logEvent } from "../notifications";
 import FoodRequestsModal from "./FoodRequestsModal";
 import ViewFoodRequestsModal from "./ViewFoodRequestsModal";
 
@@ -857,6 +857,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     try {
       if (isCreateMode) {
         const newMealId = await createMeal(meal);
+        logEvent("meal_created", { mealId: newMealId, userId: currentUserId, participantCount });
 
         // OneTable sync
         const otWeekConflictCheck = (otSyncEnabled && currentUserId && meal.datetime)
@@ -898,6 +899,9 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           tag: `meal-invite-new`,
           data: { tab: "upcoming", mealId: newMealId, invited: "true" },
         }, "meal_food");
+        if (invitedIds.length > 0) {
+          logEvent("meal_invite_sent", { mealId: newMealId, userId: currentUserId, invitedCount: invitedIds.length });
+        }
         if (onCreated) onCreated();
         if (onClose) onClose();
       } else {
@@ -907,6 +911,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           Object.entries(meal).filter(([, v]) => v !== undefined)
         ) as Meal;
         await set(ref(rtdb, `meal_events/${editId}`), mealToSave);
+        logEvent("meal_updated", { mealId: editId, userId: currentUserId });
         setOriginalMeal(structuredClone(meal));
         alert("Meal updated!");
 
@@ -918,6 +923,9 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           tag: `meal-invite-${editId}`,
           data: { tab: "upcoming", mealId: editId, invited: "true" },
         }, "meal_food");
+        if (addedIds.length > 0) {
+          logEvent("meal_invite_sent", { mealId: editId, userId: currentUserId, invitedCount: addedIds.length });
+        }
 
         // Removed participants — cancel their OneTable reservations if any
         const removedIds = Object.keys(prevParticipants).filter((id) => !newParticipants[id] && id !== currentUserId);
@@ -1123,6 +1131,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
       }, "meal_deleted");
 
       await remove(ref(rtdb, `meal_events/${mealId}`));
+      logEvent("meal_deleted", { mealId, userId: currentUserId });
       alert("Meal deleted!");
       if (onClose) onClose();
     } catch (err: any) {

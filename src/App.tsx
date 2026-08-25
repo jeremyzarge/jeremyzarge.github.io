@@ -18,7 +18,7 @@ import UserProfileView from "./components/UserProfileView";
 import ApartmentProfileView from "./components/ApartmentProfileView";
 import type { UserProfile, Apartment, UserWithId, UserRelationship, CanBring, Allergies, ApartmentInvite } from "./types";
 import { claimMealInvite, claimFriendInvite } from "./inviteService";
-import { initPushNotifications, removePushSubscription, notifyUsers } from "./notifications";
+import { initPushNotifications, removePushSubscription, notifyUsers, logClientError, logEvent } from "./notifications";
 import {
   subscribeToUserInvites,
   acceptApartmentInvite,
@@ -80,6 +80,7 @@ export default function App() {
   const [needsProfile, setNeedsProfile] = useState(false);
   const [loading, setLoading] = useState(false);
   const [authInitialized, setAuthInitialized] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"ledger" | "past" | "upcoming" | "friends" | "profile">("ledger");
   const [showCreate, setShowCreate] = useState(false);
   const [showProfileEditor, setShowProfileEditor] = useState(false);
@@ -103,6 +104,7 @@ export default function App() {
         try {
           const numericId = await ensureUserNumericMapping(currentUser.uid);
           await set(ref(rtdb, `private/${numericId}/onetable_token`), token);
+          logEvent("onetable_connected", { userId: numericId, via: "bookmarklet" });
           pendingOTToken.current = null;
           sessionStorage.removeItem("_ot_pending");
           const freshProfile = await loadProfile(numericId);
@@ -212,75 +214,92 @@ export default function App() {
       }
 
       setLoading(true);
+      setAuthError(null);
 
-      const numericId = await ensureUserNumericMapping(u.uid);
-      setMyId(numericId);
+      try {
+        const numericId = await ensureUserNumericMapping(u.uid);
+        setMyId(numericId);
+        // Fires each time auth resolves, including silent session restores on
+        // reload — not just fresh interactive sign-ins.
+        logEvent("user_login", { userId: numericId });
 
-      // Auto-save email from Google auth if not already stored
-      if (u.email) {
-        const emailSnap = await get(ref(rtdb, `private/${numericId}/email`));
-        if (!emailSnap.exists() || emailSnap.val() !== u.email) {
-          await set(ref(rtdb, `private/${numericId}/email`), u.email);
-        }
-      }
-
-      // Save OneTable token if it arrived via postMessage before auth was ready
-      let justSavedOT = false;
-      const otToken = pendingOTToken.current || sessionStorage.getItem("_ot_pending");
-      if (otToken && !otSaved.current) {
-        otSaved.current = true;
-        try {
-          await set(ref(rtdb, `private/${numericId}/onetable_token`), otToken);
-          pendingOTToken.current = null;
-          sessionStorage.removeItem("_ot_pending");
-          justSavedOT = true;
-        } catch (err) {
-          otSaved.current = false;
-          console.error("Failed to save OneTable token:", err);
-        }
-      }
-
-      const prof = await loadProfile(numericId);
-      if (!prof || !prof.first_name) {
-        setNeedsProfile(true);
-        setProfile(null);
-      } else {
-        setProfile(prof);
-        setNeedsProfile(false);
-        if (justSavedOT) {
-          setActiveTab("profile");
-          if (!prof?.onetable_config) {
-            setShowProfileEditor(true);
+        // Auto-save email from Google auth if not already stored
+        if (u.email) {
+          const emailSnap = await get(ref(rtdb, `private/${numericId}/email`));
+          if (!emailSnap.exists() || emailSnap.val() !== u.email) {
+            await set(ref(rtdb, `private/${numericId}/email`), u.email);
           }
         }
 
-        // Load users and apartments using utils functions
-        const [allUsers, allApartments] = await Promise.all([
-          fetchAllUsers(),
-          fetchAllApartments(),
-        ]);
-
-        setUsers(allUsers);
-        setApartments(allApartments);
-
-        // Register this device for push notifications (non-blocking)
-        initPushNotifications(numericId);
-
-        // Claim a pending meal invite link if one was in the URL
-        if (pendingInviteToken.current) {
-          const token = pendingInviteToken.current;
-          pendingInviteToken.current = null;
-          const mealId = await claimMealInvite(token, numericId);
-          if (mealId) await handleInviteNavigation(mealId, numericId);
+        // Save OneTable token if it arrived via postMessage before auth was ready
+        let justSavedOT = false;
+        const otToken = pendingOTToken.current || sessionStorage.getItem("_ot_pending");
+        if (otToken && !otSaved.current) {
+          otSaved.current = true;
+          try {
+            await set(ref(rtdb, `private/${numericId}/onetable_token`), otToken);
+            logEvent("onetable_connected", { userId: numericId, via: "bookmarklet" });
+            pendingOTToken.current = null;
+            sessionStorage.removeItem("_ot_pending");
+            justSavedOT = true;
+          } catch (err) {
+            otSaved.current = false;
+            console.error("Failed to save OneTable token:", err);
+          }
         }
 
-        // Claim a pending friend invite link if one was in the URL
-        if (pendingFriendInviteId.current) {
-          const inviterId = pendingFriendInviteId.current;
-          pendingFriendInviteId.current = null;
-          await claimFriendInvite(inviterId, numericId);
-          setActiveTab("friends");
+        const prof = await loadProfile(numericId);
+        if (!prof || !prof.first_name) {
+          setNeedsProfile(true);
+          setProfile(null);
+        } else {
+          setProfile(prof);
+          setNeedsProfile(false);
+          if (justSavedOT) {
+            setActiveTab("profile");
+            if (!prof?.onetable_config) {
+              setShowProfileEditor(true);
+            }
+          }
+
+          // Load users and apartments using utils functions
+          const [allUsers, allApartments] = await Promise.all([
+            fetchAllUsers(),
+            fetchAllApartments(),
+          ]);
+
+          setUsers(allUsers);
+          setApartments(allApartments);
+
+          // Register this device for push notifications (non-blocking)
+          initPushNotifications(numericId);
+
+          // Claim a pending meal invite link if one was in the URL
+          if (pendingInviteToken.current) {
+            const token = pendingInviteToken.current;
+            pendingInviteToken.current = null;
+            const mealId = await claimMealInvite(token, numericId);
+            if (mealId) await handleInviteNavigation(mealId, numericId);
+          }
+
+          // Claim a pending friend invite link if one was in the URL
+          if (pendingFriendInviteId.current) {
+            const inviterId = pendingFriendInviteId.current;
+            pendingFriendInviteId.current = null;
+            await claimFriendInvite(inviterId, numericId);
+            setActiveTab("friends");
+          }
         }
+      } catch (err) {
+        // Surfaced so a failed sign-in shows a message instead of silently
+        // sitting on the login screen with no explanation.
+        console.error("Sign-in setup failed:", err);
+        logClientError("sign_in_setup_failed", {
+          code: (err as { code?: string })?.code,
+          message: err instanceof Error ? err.message : String(err),
+        });
+        setAuthError("Something went wrong signing you in. Please try again.");
+        setAuthUser(null);
       }
 
       setLoading(false);
@@ -344,6 +363,7 @@ export default function App() {
           remove(ref(rtdb, `users/${myId}/pending_apartment_request`)),
           remove(ref(rtdb, `apartment_requests/${aptId}/${myId}`)),
         ]);
+        logEvent("apartment_joined", { userId: myId, aptId });
         await clearAllInvitesForUser(myId);
       } else {
         // Rejected — clear pending
@@ -383,6 +403,7 @@ export default function App() {
         profileData.newApartment.name,
         profileData.newApartment.address
       );
+      logEvent("apartment_created", { userId: myId, aptId });
     } else if (profileData.apartmentId) {
       // Requesting to join an existing apartment
       pendingAptId = profileData.apartmentId;
@@ -400,6 +421,7 @@ export default function App() {
     };
 
     await createOrUpdateUserNumeric(myId, profileObj);
+    logEvent("profile_created", { userId: myId });
 
     // Write the join request and notify members
     if (pendingAptId) {
@@ -625,6 +647,11 @@ export default function App() {
             <span style={{ fontSize: "1.3rem" }}>G</span>
             Sign in with Google
           </button>
+          {authError && (
+            <p style={{ color: "#dc2626", marginTop: 16, marginBottom: 0, fontSize: "0.9rem" }}>
+              {authError}
+            </p>
+          )}
         </div>
       </div>
     );
@@ -679,7 +706,7 @@ export default function App() {
             </HeaderPillButton>
           )}
           <HeaderPillButton
-            onClick={() => { if (myId) removePushSubscription(myId); localStorage.setItem("manually_signed_out", "1"); signOut(auth); }}
+            onClick={() => { if (myId) { removePushSubscription(myId); logEvent("user_logout", { userId: myId }); } localStorage.setItem("manually_signed_out", "1"); signOut(auth); }}
           >
             👋 Sign Out
           </HeaderPillButton>
@@ -968,7 +995,7 @@ export default function App() {
 
           <div style={{ flex: 1 }} />
           <button
-            onClick={() => { if (myId) removePushSubscription(myId); localStorage.setItem("manually_signed_out", "1"); signOut(auth); }}
+            onClick={() => { if (myId) { removePushSubscription(myId); logEvent("user_logout", { userId: myId }); } localStorage.setItem("manually_signed_out", "1"); signOut(auth); }}
             style={{
               padding: "14px 32px",
               borderRadius: 50,
@@ -1016,6 +1043,7 @@ export default function App() {
           aptInvites={aptInvites}
           onAcceptInvite={async (invite) => {
             await acceptApartmentInvite(myId, invite.aptId);
+            logEvent("apartment_joined", { userId: myId, aptId: invite.aptId });
             await refreshProfileAndUsers();
             notifyUsers([invite.invitedBy], {
               title: "Invitation accepted!",
@@ -1116,6 +1144,7 @@ export default function App() {
           onClose={() => setViewingInvitedMealId(null)}
           onAccept={async () => {
             await set(ref(rtdb, `meal_events/${viewingInvitedMealId}/participants/${myId}/accepted`), true);
+            logEvent("meal_invite_accepted", { mealId: viewingInvitedMealId, userId: myId });
 
             const mealSnap = await get(ref(rtdb, `meal_events/${viewingInvitedMealId}`));
             if (mealSnap.exists()) {
@@ -1166,6 +1195,7 @@ export default function App() {
           }}
           onReject={async () => {
             if (!window.confirm("Are you sure you want to reject this invitation?")) return;
+            logEvent("meal_invite_declined", { mealId: viewingInvitedMealId, userId: myId });
             const mealSnap = await get(ref(rtdb, `meal_events/${viewingInvitedMealId}`));
             if (mealSnap.exists()) {
               const mealData = mealSnap.val();

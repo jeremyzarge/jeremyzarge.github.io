@@ -4,6 +4,7 @@ import { fetchAllApartments, fetchAddressSuggestions, createDefaultAllergies, cr
 import { rtdb, createNumericApartmentId } from "../firebaseClient";
 import { createOrUpdateUserNumeric } from "../index";
 import { cancelJoinRequest, clearUserApartmentPending, requestToJoinApartment } from "../apartmentService";
+import { logEvent } from "../notifications";
 import OneTableConnect from "./OneTableConnect";
 import type { Apartment, ApartmentInvite, CanBring, Allergies, UserProfile, Meal } from "../types";
 
@@ -178,6 +179,7 @@ export default function ProfileEditor({
     setOtDisconnecting(true);
     try {
       await set(ref(rtdb, `private/${userId}/onetable_token`), null);
+      logEvent("onetable_disconnected", { userId });
       setOtToken("");
     } finally {
       setOtDisconnecting(false);
@@ -233,6 +235,7 @@ export default function ProfileEditor({
       if (lunchStatus) updatedProfile.lunch_status = lunchStatus;
 
       await createOrUpdateUserNumeric(userId, updatedProfile);
+      logEvent("profile_updated", { userId });
       alert("Profile updated!");
       onSaved();
     } catch (err: any) {
@@ -462,6 +465,7 @@ export default function ProfileEditor({
                       : newAptAddress.trim();
                     const newAptId = await createNumericApartmentId(newAptName.trim(), fullAddress);
                     await set(ref(rtdb, `users/${userId}/apartment`), newAptId);
+                    logEvent("apartment_created", { userId, aptId: newAptId });
                     await clearUserApartmentPending(userId);
                     onProfileChanged?.();
                     setCreatingNewApt(false);

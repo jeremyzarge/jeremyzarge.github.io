@@ -3,3 +3,4 @@
 /dist
 cloudflare-worker/.dev.vars
 /scripts
+/.firebase

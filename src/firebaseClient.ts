@@ -3,7 +3,7 @@
  */
 
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult } from "firebase/auth";
 import { getDatabase, ref, get, set, update, type Database } from "firebase/database";
 
 const firebaseConfig = {
@@ -24,15 +24,30 @@ provider.setCustomParameters({ prompt: "select_account" });
 export const rtdb: Database = getDatabase(app);
 
 /**
- * Initiates Google OAuth login via full-page redirect (rather than a popup).
- * Popups rely on sessionStorage being shared between the popup and opener,
- * which Safari/iOS and in-app browsers (Instagram, Facebook, etc.) often
- * block — that's the cause of Firebase's "missing initial state" error.
- * Redirect avoids that entirely; auth.onAuthStateChanged picks up the
- * signed-in user once the browser navigates back.
+ * Initiates Google OAuth login, preferring a popup with a redirect fallback.
+ *
+ * Popup talks back to this page directly via postMessage between windows, so
+ * it works even when third-party storage/cookies are blocked (e.g. Incognito)
+ * — redirect can't, because our authDomain (vitepotlock.firebaseapp.com)
+ * differs from this app's own domain, so completing a redirect sign-in
+ * requires a cross-origin iframe that depends on exactly the storage access
+ * Incognito blocks by default (Firebase surfaces this as
+ * auth/web-storage-unsupported).
+ *
+ * Popup has the opposite weak spot: Safari/iOS and in-app browsers
+ * (Instagram, Facebook, etc.) often block the sessionStorage sharing popup
+ * needs between it and its opener. So we fall back to redirect there instead.
  */
 export async function loginWithGoogle(): Promise<void> {
-  await signInWithRedirect(auth, provider);
+  try {
+    await signInWithPopup(auth, provider);
+  } catch (err) {
+    const code = (err as { code?: string })?.code;
+    if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+      return; // user backed out of the popup — nothing to do
+    }
+    await signInWithRedirect(auth, provider);
+  }
 }
 
 // Surface any error from a completed redirect sign-in (e.g. account-exists-
@@ -40,6 +55,28 @@ export async function loginWithGoogle(): Promise<void> {
 getRedirectResult(auth).catch((err) => {
   console.error("Google sign-in redirect failed:", err);
 });
+
+/**
+ * Retries a database call a few times if it fails with PERMISSION_DENIED.
+ * Right after a fresh sign-in (no prior session on this device/browser), the
+ * Realtime Database connection can take a moment to finish attaching the new
+ * auth token — a call issued in that window fails rules checks that require
+ * auth != null even though the user really is authenticated. Once the first
+ * call succeeds, the connection is proven authenticated and later calls don't
+ * need this.
+ */
+async function withAuthRetry<T>(fn: () => Promise<T>, attempts = 5, delayMs = 400): Promise<T> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const isPermissionDenied = (err as { code?: string })?.code === "PERMISSION_DENIED";
+      if (!isPermissionDenied || i === attempts - 1) throw err;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw new Error("withAuthRetry: unreachable");
+}
 
 /**
  * Gets the next available numeric ID for a given database path
@@ -62,7 +99,7 @@ export async function getNextNumericId(path: string): Promise<string> {
  * @returns Promise resolving to numeric ID string or null if not found
  */
 export async function getNumericIdFromUid(uid: string): Promise<string | null> {
-  const snap = await get(ref(rtdb, `uid_to_id/${uid}`));
+  const snap = await withAuthRetry(() => get(ref(rtdb, `uid_to_id/${uid}`)));
   return snap.exists() ? String(snap.val()) : null;
 }
 

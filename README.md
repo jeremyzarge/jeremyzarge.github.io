@@ -47,3 +47,33 @@ export default defineConfig({
   base: '/your-repo-name/',  // Add this if deploying to a project page
 });
 ```
+
+## Checking logs
+
+The app reports key events and failures to the Cloudflare Worker in `cloudflare-worker/`, which logs
+them and stores them in a KV namespace for 30 days:
+
+- `user_login`, `user_logout`
+- `profile_created`, `profile_updated`
+- `meal_created`, `meal_updated`, `meal_deleted`
+- `meal_invite_sent`, `meal_invite_accepted`, `meal_invite_declined`
+- `apartment_created`, `apartment_joined`
+- `friend_request_sent`, `friend_request_accepted`
+- `onetable_connected`, `onetable_disconnected`
+- `sign_in_setup_failed` (error-level — a broken sign-in)
+
+Search each name in `src/` to find exactly where it fires and what context it carries.
+
+**Live, as they happen** (run from `cloudflare-worker/`):
+```bash
+npx wrangler tail
+```
+
+**Recent history** — reading requires `LOGS_READ_SECRET` (set via `npx wrangler secret put LOGS_READ_SECRET`
+from `cloudflare-worker/`; keep this value out of git — it's deliberately never shipped to the browser,
+unlike `NOTIFICATION_SECRET` in `src/notifications.ts`, which the app needs client-side and so isn't a
+real secret):
+```bash
+curl "https://vitemeals-notifications.vitemeals.workers.dev/logs?limit=50" \
+  -H "X-Logs-Secret: <your LOGS_READ_SECRET>"
+```

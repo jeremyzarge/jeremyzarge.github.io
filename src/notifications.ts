@@ -15,6 +15,43 @@ export const NOTIFICATION_SECRET = "b3c9cfae63e6dc6a1922c342dd90964d";
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Reports a log entry to the Worker's /log endpoint. Used instead of (or in
+ * addition to) writing to the Realtime Database because some of the most
+ * useful moments to log — like a broken sign-in — happen before/without a
+ * signed-in Firebase user, and the DB rules require auth != null. Fire-and-
+ * forget: never throws, so a broken logging call can't compound whatever
+ * it's reporting on.
+ */
+async function postLog(
+  level: "error" | "info",
+  message: string,
+  context?: Record<string, unknown>
+): Promise<void> {
+  try {
+    await fetch(`${WORKER_URL}/log`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Notification-Secret": NOTIFICATION_SECRET,
+      },
+      body: JSON.stringify({ level, message, context, url: window.location.href }),
+    });
+  } catch (err) {
+    console.warn("[log] failed to report to worker:", err);
+  }
+}
+
+/** Reports a client-side error/failure. */
+export function logClientError(message: string, context?: Record<string, unknown>): Promise<void> {
+  return postLog("error", message, context);
+}
+
+/** Reports a key user action (sign-in, profile save, meal created/saved/invited/accepted, etc). */
+export function logEvent(message: string, context?: Record<string, unknown>): Promise<void> {
+  return postLog("info", message, context);
+}
+
+/**
  * Notification preference keys stored at users/{uid}/notification_prefs/{key}.
  * Default is true (enabled) when the key is absent.
  */

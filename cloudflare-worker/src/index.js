@@ -287,16 +287,94 @@ const CANCEL_RESERVATION_QUERY = `
   }
 `;
 
+// ─── Client-side error logging ────────────────────────────────────────────────
+// The app can't write to Firebase to report its own auth failures (the very
+// thing most worth logging is exactly the case where the client isn't
+// authenticated yet), so it posts here instead. Logged to the console (visible
+// live via `wrangler tail`) and persisted to KV for 30 days so they're visible
+// after the fact too.
+
+const LOG_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
+const MAX_LOG_BODY_BYTES = 8 * 1024;
+
+function truncate(value, maxLen) {
+  if (typeof value !== "string") return value;
+  return value.length > maxLen ? value.slice(0, maxLen) + "…" : value;
+}
+
+async function handleClientLog(request, env) {
+  const rawBody = await request.text();
+  if (rawBody.length > MAX_LOG_BODY_BYTES) {
+    return jsonError("Log payload too large", 413);
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(rawBody);
+  } catch {
+    return jsonError("Invalid JSON", 400);
+  }
+
+  const entry = {
+    receivedAt: new Date().toISOString(),
+    level: ["error", "warn", "info"].includes(parsed.level) ? parsed.level : "error",
+    message: truncate(String(parsed.message ?? ""), 500),
+    context: parsed.context && typeof parsed.context === "object" ? parsed.context : undefined,
+    userAgent: truncate(request.headers.get("User-Agent") ?? "", 300),
+    url: truncate(String(parsed.url ?? ""), 300),
+    ip: request.headers.get("CF-Connecting-IP") ?? undefined,
+  };
+
+  console.error("[client-log]", JSON.stringify(entry));
+
+  const key = `log:${entry.receivedAt}:${crypto.randomUUID().slice(0, 8)}`;
+  await env.CLIENT_LOGS.put(key, JSON.stringify(entry), { expirationTtl: LOG_TTL_SECONDS });
+
+  return new Response(JSON.stringify({ success: true }), {
+    headers: { "Content-Type": "application/json", ...corsHeaders },
+  });
+}
+
+/** Lists the most recent client logs — for you to check after the fact, not for the app. */
+async function handleListLogs(request, env) {
+  const url = new URL(request.url);
+  const limit = Math.min(Number(url.searchParams.get("limit")) || 50, 200);
+  const list = await env.CLIENT_LOGS.list({ prefix: "log:", limit });
+  const entries = await Promise.all(
+    list.keys.map(async (k) => JSON.parse((await env.CLIENT_LOGS.get(k.name)) ?? "null"))
+  );
+  return new Response(JSON.stringify({ entries: entries.reverse() }, null, 2), {
+    headers: { "Content-Type": "application/json", ...corsHeaders },
+  });
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-    if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: corsHeaders });
+
+    const url = new URL(request.url);
+
+    // Reading logs uses its own secret, deliberately never shipped to the
+    // browser (unlike NOTIFICATION_SECRET, which the client bundle has to
+    // know just to send a push notification or a log entry). If this used
+    // NOTIFICATION_SECRET too, anyone reading the app's public JS could pull
+    // it out and read every logged entry — including IP addresses.
+    if (url.pathname === "/logs" && request.method === "GET") {
+      if (request.headers.get("X-Logs-Secret") !== env.LOGS_READ_SECRET) {
+        return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+      }
+      return handleListLogs(request, env);
+    }
 
     if (request.headers.get("X-Notification-Secret") !== env.NOTIFICATION_SECRET) {
       return new Response("Unauthorized", { status: 401, headers: corsHeaders });
     }
 
-    const url = new URL(request.url);
+    if (url.pathname === "/log" && request.method === "POST") {
+      return handleClientLog(request, env);
+    }
+
+    if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: corsHeaders });
 
     // ─── Host-mediated OneTable actions ───────────────────────────────────────
     // These read someone else's onetable_token (the host's, or a removed

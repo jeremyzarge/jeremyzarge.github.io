@@ -3,6 +3,7 @@
  */
 import { ref, get, update, onValue, type Unsubscribe } from "firebase/database";
 import { rtdb } from "./firebaseClient";
+import { logEvent } from "./notifications";
 import type { UserRelationship } from "./types";
 
 /**
@@ -47,6 +48,7 @@ export async function sendFriendRequest(senderId: string, recipientId: string): 
   updates[`user_relationships/${senderId}/${recipientId}`] = { status: "request_sent", timestamp: now };
   updates[`user_relationships/${recipientId}/${senderId}`] = { status: "request_received", timestamp: now };
   await update(ref(rtdb), updates);
+  logEvent("friend_request_sent", { userId: senderId, recipientId });
 }
 
 /**
@@ -58,6 +60,7 @@ export async function acceptFriendRequest(myId: string, senderId: string): Promi
   updates[`user_relationships/${myId}/${senderId}`] = { status: "friend", timestamp: now };
   updates[`user_relationships/${senderId}/${myId}`] = { status: "friend", timestamp: now };
   await update(ref(rtdb), updates);
+  logEvent("friend_request_accepted", { userId: myId, friendId: senderId });
 }
 
 /**

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ref, set } from "firebase/database";
 import { rtdb } from "../firebaseClient";
 import { verifyOTToken } from "../onetableService";
+import { logEvent } from "../notifications";
 
 interface OneTableConnectProps {
   userId: string;
@@ -52,6 +53,7 @@ export default function OneTableConnect({
     setSaving(true);
     try {
       await set(ref(rtdb, `private/${userId}/onetable_token`), manualToken.trim());
+      logEvent("onetable_connected", { userId, via: "manual" });
       onSaved();
     } catch (err: any) {
       alert("Failed to save: " + err.message);
