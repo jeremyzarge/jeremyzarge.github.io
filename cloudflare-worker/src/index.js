@@ -339,11 +339,23 @@ async function handleClientLog(request, env) {
 async function handleListLogs(request, env) {
   const url = new URL(request.url);
   const limit = Math.min(Number(url.searchParams.get("limit")) || 50, 200);
-  const list = await env.CLIENT_LOGS.list({ prefix: "log:", limit });
+
+  // KV's list() returns keys oldest-first with no descending option, so to
+  // get the most recent N we have to walk the full (bounded) key set first,
+  // then take the tail — a fixed `limit` on list() would give the oldest N.
+  let allKeys = [];
+  let cursor;
+  do {
+    const page = await env.CLIENT_LOGS.list({ prefix: "log:", cursor });
+    allKeys.push(...page.keys);
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor && allKeys.length < 5000);
+
+  const recentKeys = allKeys.slice(-limit).reverse();
   const entries = await Promise.all(
-    list.keys.map(async (k) => JSON.parse((await env.CLIENT_LOGS.get(k.name)) ?? "null"))
+    recentKeys.map(async (k) => JSON.parse((await env.CLIENT_LOGS.get(k.name)) ?? "null"))
   );
-  return new Response(JSON.stringify({ entries: entries.reverse() }, null, 2), {
+  return new Response(JSON.stringify({ entries }, null, 2), {
     headers: { "Content-Type": "application/json", ...corsHeaders },
   });
 }
