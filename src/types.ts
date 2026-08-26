@@ -50,8 +50,10 @@ export type UserProfile = {
   placeholder: boolean;
   dinner_status?: "free" | "busy";
   lunch_status?: "free" | "busy";
+  last_status_prompt_week?: string;
   onetable_token?: string;
   onetable_config?: OneTableConfig;
+  tracking_preference?: "all" | "untracked_self" | "opted_out";
 };
 
 export type ApartmentInvite = {
@@ -60,7 +62,6 @@ export type ApartmentInvite = {
   invitedBy: string;
   invitedByName: string;
   timestamp: number;
-  type?: "removal";
 };
 
 export type MealParticipant = {

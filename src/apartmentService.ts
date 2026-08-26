@@ -154,16 +154,14 @@ export async function declineApartmentInvite(userId: string, aptId: string): Pro
 export async function clearAllInvitesForUser(userId: string): Promise<void> {
   const snap = await get(ref(rtdb, `apartment_invites/${userId}`));
   if (!snap.exists()) return;
-  const entries = snap.val() as Record<string, { type?: string }>;
+  const entries = snap.val() as Record<string, unknown>;
   await Promise.all([
-    ...Object.keys(entries)
-      .filter((aptId) => !entries[aptId].type || entries[aptId].type !== "removal")
-      .map((aptId) => remove(ref(rtdb, `apartments/${aptId}/invites/${userId}`))),
+    ...Object.keys(entries).map((aptId) => remove(ref(rtdb, `apartments/${aptId}/invites/${userId}`))),
     remove(ref(rtdb, `apartment_invites/${userId}`)),
   ]);
 }
 
-/** Subscribe to pending invites for a user (excludes removal signals). Returns unsubscribe fn. */
+/** Subscribe to pending invites for a user. Returns unsubscribe fn. */
 export function subscribeToUserInvites(
   userId: string,
   callback: (invites: ApartmentInvite[]) => void
@@ -171,33 +169,12 @@ export function subscribeToUserInvites(
   const r = ref(rtdb, `apartment_invites/${userId}`);
   const handler = (snap: any) => {
     if (!snap.exists()) { callback([]); return; }
-    const all: ApartmentInvite[] = Object.values(snap.val());
-    const invites = all.filter((i) => i.type !== "removal");
+    const invites: ApartmentInvite[] = Object.values(snap.val());
     invites.sort((a, b) => b.timestamp - a.timestamp);
     callback(invites);
   };
   onValue(r, handler);
   return () => off(r, "value", handler);
-}
-
-/**
- * Signal that a member should be removed from an apartment.
- * Writes to apartment_invites (auth != null) so any authenticated member can do it.
- * The target user's app watches for this signal and clears its own apartment field.
- */
-export async function signalMemberRemoval(
-  userId: string,
-  aptId: string,
-  aptName: string
-): Promise<void> {
-  await set(ref(rtdb, `apartment_invites/${userId}/${aptId}`), {
-    aptId,
-    aptName,
-    invitedBy: "",
-    invitedByName: "",
-    type: "removal",
-    timestamp: Date.now(),
-  });
 }
 
 // ─── Membership ───────────────────────────────────────────────────────────────

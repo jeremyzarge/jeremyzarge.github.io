@@ -280,6 +280,21 @@ export function getUpcomingShabbatWindows() {
 }
 
 /**
+ * Returns the most recent Sunday at local midnight, as a YYYY-MM-DD date string.
+ * Used to key "have we already shown this the first time this week" prompts.
+ */
+export function getCurrentWeekStart(): string {
+  const now = new Date();
+  const sunday = new Date(now);
+  sunday.setDate(now.getDate() - now.getDay());
+  sunday.setHours(0, 0, 0, 0);
+  const year = sunday.getFullYear();
+  const month = String(sunday.getMonth() + 1).padStart(2, "0");
+  const day = String(sunday.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * Formats apartment display name with address
  * @param apt - Apartment object
  * @returns Formatted string "Name - Address"

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
-import { ref, get, set, remove, update, onValue } from "firebase/database";
+import { ref, get, set, remove, onValue } from "firebase/database";
 import { rtdb } from "../firebaseClient";
 import { fetchAllUsers, fetchAllApartments, fetchAddressSuggestions, getAllergenCounts, formatFood, buildCalendarLinks } from "../utils";
 import { generateMealInviteUrl } from "../inviteService";
@@ -84,7 +84,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
   const [foods, setFoods] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<"info" | "participants" | "messages">("info");
+  const [activeTab, setActiveTab] = useState<"info" | "participants" | "messages">(isCreateMode ? "info" : "participants");
   const [showManageFoodRequests, setShowManageFoodRequests] = useState(false);
   const [showViewFoodRequests, setShowViewFoodRequests] = useState(false);
 
@@ -675,21 +675,6 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
   };
 
   /**
-   * Immediately persist a single participant's field(s) to Firebase (edit mode only —
-   * in create mode the meal doesn't exist in the DB yet, so there's nothing to write to
-   * until the initial "Create Meal" save). This is fire-and-forget: food selections
-   * shouldn't wait on — or get lost because someone never clicks — the big Save button.
-   */
-  const persistParticipantField = (userId: string, patch: Partial<MealParticipant>) => {
-    if (isCreateMode || !mealId) return;
-    const updates: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(patch)) {
-      updates[`meal_events/${mealId}/participants/${userId}/${key}`] = value;
-    }
-    update(ref(rtdb), updates).catch((err) => console.error("Failed to auto-save food selection:", err));
-  };
-
-  /**
    * Set food for a participant (hosts can edit all, guests can edit their own)
    */
   const setFoodForParticipant = (userId: string, food: string) => {
@@ -712,8 +697,6 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
       return { ...m, participants: { ...m.participants, [userId]: { ...participant, food } } };
     };
     setMeal((prev) => (prev ? apply(prev) : prev));
-    setOriginalMeal((prev) => (prev ? apply(prev) : prev));
-    persistParticipantField(userId, { food });
   };
 
   /**
@@ -732,8 +715,6 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
       return { ...m, participants: { ...m.participants, [userId]: { ...participant, specifics } } };
     };
     setMeal((prev) => (prev ? apply(prev) : prev));
-    setOriginalMeal((prev) => (prev ? apply(prev) : prev));
-    persistParticipantField(userId, { specifics });
   };
 
   /** Add an extra item row for a participant */
@@ -750,8 +731,6 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
       return { ...m, participants: { ...m.participants, [userId]: { ...mp, additional_items } } };
     };
     setMeal((prev) => (prev ? apply(prev) : prev));
-    setOriginalMeal((prev) => (prev ? apply(prev) : prev));
-    persistParticipantField(userId, { additional_items });
   };
 
   /** Remove an extra item row for a participant */
@@ -768,8 +747,6 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
       return { ...m, participants: { ...m.participants, [userId]: { ...mp, additional_items } } };
     };
     setMeal((prev) => (prev ? apply(prev) : prev));
-    setOriginalMeal((prev) => (prev ? apply(prev) : prev));
-    persistParticipantField(userId, { additional_items });
   };
 
   /** Set food for an additional item */
@@ -794,8 +771,6 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
       return { ...m, participants: { ...m.participants, [userId]: { ...mp, additional_items } } };
     };
     setMeal((prev) => (prev ? apply(prev) : prev));
-    setOriginalMeal((prev) => (prev ? apply(prev) : prev));
-    persistParticipantField(userId, { additional_items });
   };
 
   /** Set specifics for an additional item */
@@ -813,8 +788,6 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
       return { ...m, participants: { ...m.participants, [userId]: { ...mp, additional_items } } };
     };
     setMeal((prev) => (prev ? apply(prev) : prev));
-    setOriginalMeal((prev) => (prev ? apply(prev) : prev));
-    persistParticipantField(userId, { additional_items });
   };
 
   /**
@@ -1281,12 +1254,13 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         className="modal-content"
         style={{
           background: "white",
-          padding: 32,
+          display: "flex",
+          flexDirection: "column",
           borderRadius: 20,
           maxWidth: 950,
           width: "100%",
           maxHeight: "90vh",
-          overflowY: "auto",
+          overflow: "hidden",
           boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
           border: "4px solid transparent",
           backgroundImage: "linear-gradient(white, white), linear-gradient(135deg, #10b981 0%, #059669 100%)",
@@ -1295,6 +1269,9 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           position: "relative",
         }}
       >
+        {/* Scrollable body */}
+        <div style={{ padding: 32, overflowY: "auto", flex: 1, position: "relative" }}>
+
         {/* X close button */}
         <button
           type="button"
@@ -2812,7 +2789,22 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
           </div>
         )}
 
-        <div className="button-bar" style={{ display: "flex", justifyContent: "flex-end", gap: 12, marginTop: 28 }}>
+        </div>
+
+        {/* Footer — a real block below the scrollable body, not an overlay, so nothing shows through it */}
+        <div
+          className="button-bar"
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            flexWrap: "wrap",
+            gap: 12,
+            flexShrink: 0,
+            padding: "20px 32px",
+            background: "white",
+            borderTop: "1px solid rgba(0,0,0,0.08)",
+          }}
+        >
           <button
             onClick={onClose}
             style={{

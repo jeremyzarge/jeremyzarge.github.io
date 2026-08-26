@@ -4,7 +4,7 @@ import { signOut } from "firebase/auth";
 import type { User } from "firebase/auth";
 import firebaseClient, { rtdb, ensureUserNumericMapping, createNumericApartmentId, loginWithGoogle } from "./firebaseClient";
 import { createOrUpdateUserNumeric } from "./index";
-import { fetchAllUsers, fetchAllApartments } from "./utils";
+import { fetchAllUsers, fetchAllApartments, getCurrentWeekStart } from "./utils";
 import { subscribeToRelationships, getFriendIds } from "./friendsService";
 import ProfileSetup from "./profileSetup";
 import MealEditor from "./components/MealEditor";
@@ -32,6 +32,7 @@ import NotificationPrefsModal from "./components/NotificationPrefsModal";
 import DataSecurityModal from "./components/DataSecurityModal";
 import HeaderPillButton from "./components/HeaderPillButton";
 import AdminStats from "./components/AdminStats";
+import WeeklyStatusPrompt from "./components/WeeklyStatusPrompt";
 
 const { auth } = firebaseClient;
 
@@ -132,6 +133,7 @@ export default function App() {
   const [showDataSecurity, setShowDataSecurity] = useState(false);
   const [showAdminStats, setShowAdminStats] = useState(false);
   const [showPWAInstructions, setShowPWAInstructions] = useState(false);
+  const [showWeeklyStatusPrompt, setShowWeeklyStatusPrompt] = useState(false);
   const isAdmin = authUser?.email === "jeremyzarge@gmail.com";
 
   // Cache for users and apartments (loaded once when profile exists)
@@ -316,6 +318,14 @@ export default function App() {
     return subscribeToRelationships(myId, setRelationships);
   }, [myId]);
 
+  // Prompt for this week's Shabbat status once, on the first login on/after Sunday midnight.
+  useEffect(() => {
+    if (!myId || !profile) return;
+    if (getCurrentWeekStart() !== profile.last_status_prompt_week) {
+      setShowWeeklyStatusPrompt(true);
+    }
+  }, [myId, profile]);
+
   // Subscribe to apartment invites for current user
   useEffect(() => {
     if (!myId) {
@@ -323,27 +333,6 @@ export default function App() {
       return;
     }
     return subscribeToUserInvites(myId, setAptInvites);
-  }, [myId]);
-
-  // Watch for removal signals written to apartment_invites by a member.
-  // Self-clear apartment field (we can write our own node) then refresh.
-  useEffect(() => {
-    if (!myId) return;
-    const r = ref(rtdb, `apartment_invites/${myId}`);
-    const handler = async (snap: any) => {
-      if (!snap.exists()) return;
-      const entries = snap.val() as Record<string, { type?: string; aptId?: string }>;
-      const removal = Object.values(entries).find((e) => e.type === "removal");
-      if (!removal?.aptId) return;
-      const aptId = removal.aptId;
-      await Promise.all([
-        set(ref(rtdb, `users/${myId}/apartment`), ""),
-        remove(ref(rtdb, `apartment_invites/${myId}/${aptId}`)),
-      ]);
-      await refreshProfileAndUsers();
-    };
-    onValue(r, handler);
-    return () => off(r, "value", handler);
   }, [myId]);
 
   // Watch own join request record for approval or rejection.
@@ -1237,6 +1226,19 @@ export default function App() {
         <NotificationPrefsModal
           userId={myId}
           onClose={() => setShowNotifPrefs(false)}
+        />
+      )}
+
+      {showWeeklyStatusPrompt && myId && profile && (
+        <WeeklyStatusPrompt
+          userId={myId}
+          currentDinnerStatus={profile.dinner_status}
+          currentLunchStatus={profile.lunch_status}
+          weekStart={getCurrentWeekStart()}
+          onDone={async () => {
+            setShowWeeklyStatusPrompt(false);
+            await refreshProfileAndUsers();
+          }}
         />
       )}
 

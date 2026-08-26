@@ -9,7 +9,6 @@ import {
   approveJoinRequest,
   rejectJoinRequest,
   removeMember,
-  signalMemberRemoval,
   inviteMember,
   cancelInvite,
   requestToJoinApartment,
@@ -228,14 +227,11 @@ export default function ApartmentProfileView({
 
     setJoiningOrLeaving(true);
     try {
+      await removeMember(userId, apartmentId, memberIds);
       if (isSelf) {
-        await removeMember(userId, apartmentId, memberIds);
         onApartmentUpdated?.();
         onClose();
       } else {
-        // Signal removal via apartment_invites (writable by any auth user).
-        // The target user's app watches for this and clears its own apartment field.
-        await signalMemberRemoval(userId, apartmentId, aptName);
         notifyUsers([userId], {
           title: "Removed from apartment",
           body: `You've been removed from ${aptName}.`,

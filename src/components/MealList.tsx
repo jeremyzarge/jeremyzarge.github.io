@@ -16,6 +16,8 @@ interface MealListProps {
   onViewApartment?: (apartmentId: string) => void;
   /** This week's Shabbat status per user id — when provided, renders a "This Week" dots column. */
   weekStatus?: Record<string, { dinnerBusy: boolean; lunchBusy: boolean }>;
+  /** Omit the Balance column — used for viewers who've opted out of meal tracking. */
+  hideBalance?: boolean;
 }
 
 /**
@@ -29,6 +31,7 @@ export default function MealList({
   onViewProfile,
   onViewApartment,
   weekStatus,
+  hideBalance,
 }: MealListProps) {
   return (
     <div
@@ -51,7 +54,7 @@ export default function MealList({
             {showApartment && !apartmentMode && (
               <th style={{ padding: "12px 8px" }}>Apartment</th>
             )}
-            <th style={{ padding: "12px 8px" }}>Balance</th>
+            {!hideBalance && <th style={{ padding: "12px 8px" }}>Balance</th>}
             {weekStatus && <ThisWeekHeader />}
           </tr>
         </thead>
@@ -86,7 +89,9 @@ export default function MealList({
                     : u.apartment?.name ?? "-"}
                 </td>
               )}
-              <td style={{ padding: 12, textAlign: "center"}}>{formatNumber(meals[u.id] ?? 0)}</td>
+              {!hideBalance && (
+                <td style={{ padding: 12, textAlign: "center"}}>{formatNumber(meals[u.id] ?? 0)}</td>
+              )}
               {weekStatus && (
                 <td style={{ padding: 12, textAlign: "center" }}>
                   <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>

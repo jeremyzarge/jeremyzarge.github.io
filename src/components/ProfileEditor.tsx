@@ -6,6 +6,7 @@ import { createOrUpdateUserNumeric } from "../index";
 import { cancelJoinRequest, clearUserApartmentPending, requestToJoinApartment } from "../apartmentService";
 import { logEvent } from "../notifications";
 import OneTableConnect from "./OneTableConnect";
+import TrackingPrefsModal from "./TrackingPrefsModal";
 import type { Apartment, ApartmentInvite, CanBring, Allergies, UserProfile, Meal } from "../types";
 
 function getUpcomingShabbatWindows() {
@@ -62,6 +63,8 @@ export default function ProfileEditor({
   const [showOTConnect, setShowOTConnect] = useState(false);
   const [otToken, setOtToken] = useState(currentProfile.onetable_token || "");
   const [otDisconnecting, setOtDisconnecting] = useState(false);
+  const [trackingPreference, setTrackingPreference] = useState(currentProfile.tracking_preference ?? "all");
+  const [showTrackingPrefs, setShowTrackingPrefs] = useState(false);
 
   // Always load fresh OT token on mount — the profile prop may be stale
   useEffect(() => {
@@ -281,10 +284,9 @@ export default function ProfileEditor({
         background: "rgba(0,0,0,0.5)",
         display: "flex",
         justifyContent: "center",
-        alignItems: "flex-start",
-        padding: "40px 20px",
+        alignItems: "center",
+        padding: 16,
         zIndex: 1000,
-        overflowY: "auto",
         backdropFilter: "blur(4px)",
       }}
     >
@@ -296,8 +298,8 @@ export default function ProfileEditor({
           flexDirection: "column",
           width: "100%",
           maxWidth: 580,
-          gap: 20,
-          padding: 40,
+          maxHeight: "90vh",
+          overflow: "hidden",
           borderRadius: 20,
           boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
           fontFamily: "Inter, sans-serif",
@@ -307,6 +309,9 @@ export default function ProfileEditor({
           backgroundClip: "padding-box, border-box",
         }}
       >
+        {/* Scrollable body */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 20, padding: 40, overflowY: "auto", flex: 1 }}>
+
         <h2
           style={{
             margin: 0,
@@ -843,6 +848,44 @@ export default function ProfileEditor({
           </button>
         </div>
 
+        {/* ── Meal Tracking ── */}
+        <SectionTitle text="Meal Tracking" />
+        <div
+          style={{
+            padding: 16,
+            borderRadius: 14,
+            border: "2px solid #e5e7eb",
+            background: "#f9fafb",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ color: "#374151", fontSize: "0.9rem", fontWeight: 600 }}>
+            {trackingPreference === "all" && "Full Tracking"}
+            {trackingPreference === "untracked_self" && "External Tracking"}
+            {trackingPreference === "opted_out" && "No Tracking"}
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowTrackingPrefs(true)}
+            style={{
+              padding: "8px 16px",
+              borderRadius: 10,
+              border: "none",
+              background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+              color: "white",
+              fontWeight: 700,
+              fontSize: "0.85rem",
+              cursor: "pointer",
+            }}
+          >
+            Change
+          </button>
+        </div>
+
         {/* ── OneTable Integration ── */}
         <SectionTitle text="OneTable Integration" />
         <div
@@ -930,7 +973,19 @@ export default function ProfileEditor({
           )}
         </div>
 
-        <div style={{ display: "flex", gap: 12, marginTop: 20 }}>
+        </div>
+
+        {/* Footer — a real block below the scrollable body, not an overlay, so nothing shows through it */}
+        <div
+          style={{
+            display: "flex",
+            gap: 12,
+            flexShrink: 0,
+            padding: "20px 40px",
+            background: "#fdf2f8",
+            borderTop: "1px solid rgba(0,0,0,0.06)",
+          }}
+        >
           <button
             type="button"
             onClick={handleCancel}
@@ -985,6 +1040,19 @@ export default function ProfileEditor({
           setShowOTConnect(false);
         }}
         onClose={() => setShowOTConnect(false)}
+      />
+    )}
+
+    {showTrackingPrefs && (
+      <TrackingPrefsModal
+        userId={userId}
+        currentPreference={trackingPreference}
+        onClose={() => setShowTrackingPrefs(false)}
+        onSaved={(preference) => {
+          setTrackingPreference(preference);
+          setShowTrackingPrefs(false);
+          onProfileChanged?.();
+        }}
       />
     )}
     </>

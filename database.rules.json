@@ -3,7 +3,10 @@
     "users": {
       ".read": "auth != null",
       "$userId": {
-        ".write": "auth != null && ($userId == root.child('uid_to_id').child(auth.uid).val() || !data.exists())"
+        ".write": "auth != null && ($userId == root.child('uid_to_id').child(auth.uid).val() || !data.exists())",
+        "apartment": {
+          ".write": "auth != null && newData.val() == '' && data.val() == root.child('users').child(root.child('uid_to_id').child(auth.uid).val()).child('apartment').val()"
+        }
       }
     },
     "private": {

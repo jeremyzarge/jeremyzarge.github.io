@@ -25,6 +25,7 @@ export default function MealLedger({ currentUserId, friendIds, onViewProfile, on
   const [users, setUsers] = useState<UserWithApartment[] | null>(null);
   const [apartments, setApartments] = useState<Apartment[] | null>(null);
   const [currentUserApartmentId, setCurrentUserApartmentId] = useState<string | null>(null);
+  const [currentUserTrackingPreference, setCurrentUserTrackingPreference] = useState<"all" | "untracked_self" | "opted_out">("all");
   const [view, setView] = useState<"users" | "apartments">("users");
 
   // Fetch users, apartments, and compute balances from meal_events
@@ -40,11 +41,12 @@ export default function MealLedger({ currentUserId, friendIds, onViewProfile, on
 
       setApartments(allApartments);
 
-      // Find current user's apartment
+      // Find current user's apartment and tracking preference
       const currentUser = allUsers.find((u) => u.id === currentUserId);
       if (currentUser?.apartment) {
         setCurrentUserApartmentId(currentUser.apartment);
       }
+      setCurrentUserTrackingPreference(currentUser?.tracking_preference ?? "all");
 
       // Compute balances and shared-meal partners directly from meal_events
       const balances: Record<string, number> = {};
@@ -85,6 +87,7 @@ export default function MealLedger({ currentUserId, friendIds, onViewProfile, on
           user.id !== currentUserId &&
           user.first_name &&
           !user.placeholder &&
+          user.tracking_preference !== "opted_out" &&
           (friendSet.has(user.id) || sharedMealPartnerIds.has(user.id))
         )
         .map((user) => ({
@@ -139,10 +142,12 @@ export default function MealLedger({ currentUserId, friendIds, onViewProfile, on
       return { ...apt, avgBalance };
     });
 
+  const hideBalance = currentUserTrackingPreference !== "all";
+
   return (
     <div style={{ maxWidth: 1200, margin: "20px auto" }}>
       <h2 className="page-title" style={{ marginBottom: 16, color: "white", textShadow: "2px 2px 4px rgba(0,0,0,0.2)", fontWeight: 800, textAlign: "center" }}>
-        Meal Ledger
+        {hideBalance ? "Community" : "Meal Ledger"}
       </h2>
       <div
         className="tab-bar"
@@ -198,7 +203,7 @@ export default function MealLedger({ currentUserId, friendIds, onViewProfile, on
       </div>
 
       {view === "users" && (
-        <MealList meals={meals} otherUsers={users} showApartment={true} onViewProfile={onViewProfile} onViewApartment={onViewApartment} weekStatus={weekStatus} />
+        <MealList meals={meals} otherUsers={users} showApartment={true} onViewProfile={onViewProfile} onViewApartment={onViewApartment} weekStatus={weekStatus} hideBalance={hideBalance} />
       )}
 
       {view === "apartments" && (
@@ -214,6 +219,7 @@ export default function MealLedger({ currentUserId, friendIds, onViewProfile, on
           }))}
           apartmentMode={true}
           onViewApartment={onViewApartment}
+          hideBalance={hideBalance}
         />
       )}
     </div>
