@@ -89,12 +89,13 @@ export default function OneTableConnect({
       <div
         style={{
           background: "white",
+          display: "flex",
+          flexDirection: "column",
           borderRadius: 20,
-          padding: 32,
           maxWidth: 460,
           width: "100%",
           maxHeight: "90vh",
-          overflowY: "auto",
+          overflow: "hidden",
           boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
           border: "4px solid transparent",
           backgroundImage:
@@ -104,6 +105,9 @@ export default function OneTableConnect({
         }}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Scrollable body */}
+        <div style={{ padding: 32, overflowY: "auto", flex: 1 }}>
+
         <h2 style={headingStyle}>OneTable Integration</h2>
 
         {/* ── Bookmarklet step ── */}
@@ -181,10 +185,6 @@ export default function OneTableConnect({
               </>
             )}
 
-            <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-              <button onClick={onClose} style={cancelBtn}>Cancel</button>
-            </div>
-
             <button
               onClick={() => setStep("manual")}
               style={{ marginTop: 14, background: "none", border: "none", color: "#9ca3af", fontSize: "0.82rem", cursor: "pointer", textDecoration: "underline", padding: 0 }}
@@ -211,8 +211,17 @@ export default function OneTableConnect({
             />
 
             {verifyError && <div style={errorStyle}>{verifyError}</div>}
+          </>
+        )}
 
-            <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+        </div>
+
+        {/* Footer — a real block below the scrollable body, not an overlay, so nothing shows through it */}
+        <div style={{ display: "flex", gap: 10, flexShrink: 0, padding: 32, background: "white", borderTop: "1px solid rgba(0,0,0,0.08)" }}>
+          {step === "bookmarklet" ? (
+            <button onClick={onClose} style={cancelBtn}>Cancel</button>
+          ) : (
+            <>
               <button onClick={() => setStep("bookmarklet")} style={cancelBtn}>← Back</button>
               <button
                 onClick={handleVerifyManual}
@@ -221,9 +230,9 @@ export default function OneTableConnect({
               >
                 {verifying ? "Verifying…" : saving ? "Saving…" : "Verify & Save →"}
               </button>
-            </div>
-          </>
-        )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
