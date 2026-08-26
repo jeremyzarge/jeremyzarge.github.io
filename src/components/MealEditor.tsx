@@ -1251,7 +1251,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
       }}
     >
       <div
-        className="modal-content"
+        className="modal-content no-content-padding"
         style={{
           background: "white",
           display: "flex",
@@ -1270,7 +1270,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         }}
       >
         {/* Scrollable body */}
-        <div style={{ padding: 32, overflowY: "auto", flex: 1, position: "relative" }}>
+        <div className="modal-scroll-body" style={{ padding: 32, overflowY: "auto", flex: 1, position: "relative" }}>
 
         {/* X close button */}
         <button
@@ -2793,14 +2793,14 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
 
         {/* Footer — a real block below the scrollable body, not an overlay, so nothing shows through it */}
         <div
-          className="button-bar"
+          className="button-bar modal-footer-bar"
           style={{
             display: "flex",
             justifyContent: "flex-end",
             flexWrap: "wrap",
             gap: 12,
             flexShrink: 0,
-            padding: "20px 32px",
+            padding: "28px 32px 32px",
             background: "white",
             borderTop: "1px solid rgba(0,0,0,0.08)",
           }}

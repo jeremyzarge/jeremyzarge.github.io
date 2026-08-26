@@ -122,12 +122,13 @@ export default function NotificationPrefsModal({ userId, onClose }: Notification
       <div
         style={{
           background: "white",
+          display: "flex",
+          flexDirection: "column",
           borderRadius: 20,
-          padding: 24,
           width: "100%",
           maxWidth: 420,
           maxHeight: "90vh",
-          overflowY: "auto",
+          overflow: "hidden",
           boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
           border: "4px solid transparent",
           backgroundImage:
@@ -137,6 +138,9 @@ export default function NotificationPrefsModal({ userId, onClose }: Notification
         }}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Scrollable body */}
+        <div style={{ padding: 24, overflowY: "auto", flex: 1 }}>
+
         <h3
           style={{
             margin: "0 0 6px",
@@ -211,7 +215,20 @@ export default function NotificationPrefsModal({ userId, onClose }: Notification
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 10, marginTop: 24, justifyContent: "flex-end" }}>
+        </div>
+
+        {/* Footer — a real block below the scrollable body, not an overlay, so nothing shows through it */}
+        <div
+          style={{
+            display: "flex",
+            gap: 10,
+            justifyContent: "flex-end",
+            flexShrink: 0,
+            padding: 24,
+            background: "white",
+            borderTop: "1px solid rgba(0,0,0,0.08)",
+          }}
+        >
           <button
             onClick={handleClose}
             style={{

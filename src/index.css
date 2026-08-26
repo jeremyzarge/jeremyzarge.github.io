@@ -239,6 +239,22 @@ body {
     border-width: 2px !important;
   }
 
+  /* Modals split into a scrollable body + fixed footer bar (padding lives on
+     these instead of .modal-content) — mirror the same mobile padding/gap. */
+  .modal-content.no-content-padding {
+    padding: 0 !important;
+  }
+
+  .modal-scroll-body {
+    padding: 14px !important;
+    gap: 12px !important;
+  }
+
+  .modal-footer-bar {
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+  }
+
   /* Tab bars (main tabs, sub-tabs, toggles) */
   .tab-bar {
     width: 100% !important;
@@ -568,6 +584,16 @@ body {
     padding: 10px !important;
     border-radius: 10px !important;
     gap: 8px !important;
+  }
+
+  .modal-scroll-body {
+    padding: 10px !important;
+    gap: 8px !important;
+  }
+
+  .modal-footer-bar {
+    padding-left: 10px !important;
+    padding-right: 10px !important;
   }
 
   .modal-content h2,

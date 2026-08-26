@@ -292,7 +292,7 @@ export default function ProfileEditor({
     >
       <form
         onSubmit={handleSubmit}
-        className="modal-content"
+        className="modal-content no-content-padding"
         style={{
           display: "flex",
           flexDirection: "column",
@@ -310,7 +310,7 @@ export default function ProfileEditor({
         }}
       >
         {/* Scrollable body */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 20, padding: 40, overflowY: "auto", flex: 1 }}>
+        <div className="modal-scroll-body" style={{ display: "flex", flexDirection: "column", gap: 20, padding: 40, overflowY: "auto", flex: 1 }}>
 
         <h2
           style={{
@@ -977,11 +977,12 @@ export default function ProfileEditor({
 
         {/* Footer — a real block below the scrollable body, not an overlay, so nothing shows through it */}
         <div
+          className="modal-footer-bar"
           style={{
             display: "flex",
             gap: 12,
             flexShrink: 0,
-            padding: "20px 40px",
+            padding: 40,
             background: "#fdf2f8",
             borderTop: "1px solid rgba(0,0,0,0.06)",
           }}
