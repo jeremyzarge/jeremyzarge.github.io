@@ -94,6 +94,8 @@ export type Meal = {
   location?: string;
   allowGuestsFoodSelection: boolean;
   messages: Record<string, MealMessage>;
+  /** Per-user "last read" timestamp (ms) for this meal's messages tab. */
+  message_reads?: Record<string, number>;
   onetable_event_id?: number;
   onetable_event_uuid?: string;
   onetable_description?: string;

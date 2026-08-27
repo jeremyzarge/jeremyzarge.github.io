@@ -302,6 +302,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         location: mealData.location || "",
         allowGuestsFoodSelection: mealData.allowGuestsFoodSelection || false,
         messages: mealData.messages || {},
+        message_reads: mealData.message_reads || {},
         onetable_event_id: mealData.onetable_event_id,
         onetable_event_uuid: mealData.onetable_event_uuid,
         onetable_description: mealData.onetable_description,
@@ -364,6 +365,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         location: mealData.location || "",
         allowGuestsFoodSelection: mealData.allowGuestsFoodSelection || false,
         messages: mealData.messages || {},
+        message_reads: mealData.message_reads || {},
         onetable_event_id: mealData.onetable_event_id,
         onetable_event_uuid: mealData.onetable_event_uuid,
         onetable_description: mealData.onetable_description,
@@ -425,6 +427,21 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
       setTimeout(() => jumpToBottom(), 50);
     }
   }, [activeTab, jumpToBottom]);
+
+  // Unread count for the Messages tab badge — messages from others since this user last opened the tab
+  const unreadMessageCount = useMemo(() => {
+    if (!meal || !currentUserId) return 0;
+    const lastRead = meal.message_reads?.[currentUserId] ?? 0;
+    return Object.values(meal.messages).filter(
+      (m) => m.timestamp > lastRead && m.user !== currentUserId
+    ).length;
+  }, [meal, currentUserId]);
+
+  // Mark messages as read while the Messages tab is open (on open, and as new ones arrive)
+  useEffect(() => {
+    if (activeTab !== "messages" || !mealId || !currentUserId || unreadMessageCount === 0) return;
+    set(ref(rtdb, `meal_events/${mealId}/message_reads/${currentUserId}`), Date.now());
+  }, [activeTab, mealId, currentUserId, unreadMessageCount]);
 
   // Auto-geocode the meal address whenever OT sync is on and the apartment/location changes
   useEffect(() => {
@@ -1320,6 +1337,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
               key={tab}
               onClick={() => setActiveTab(tab)}
               style={{
+                position: "relative",
                 padding: "10px 20px",
                 borderRadius: 50,
                 border: "none",
@@ -1335,6 +1353,29 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
               }}
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab === "messages" && activeTab !== "messages" && unreadMessageCount > 0 && (
+                <span
+                  style={{
+                    position: "absolute",
+                    top: -4,
+                    right: -4,
+                    minWidth: 18,
+                    height: 18,
+                    padding: "0 4px",
+                    borderRadius: 9,
+                    background: "#ef4444",
+                    color: "white",
+                    fontSize: "0.7rem",
+                    fontWeight: 800,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                  }}
+                >
+                  {unreadMessageCount > 9 ? "9+" : unreadMessageCount}
+                </span>
+              )}
             </button>
           ))}
         </div>
