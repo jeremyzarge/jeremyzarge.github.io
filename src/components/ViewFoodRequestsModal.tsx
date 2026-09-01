@@ -16,8 +16,31 @@ function currentlyChosenCount(food: string, meal: Meal): number {
   return count;
 }
 
+/** open (nothing taken yet) → partial (some taken) → full (all taken) */
+type OpenStatus = "open" | "partial" | "full";
+
+function openStatus(chosen: number, quantity: number): OpenStatus {
+  if (chosen <= 0) return "open";
+  if (chosen >= quantity) return "full";
+  return "partial";
+}
+
+const statusRank: Record<OpenStatus, number> = { open: 0, partial: 1, full: 2 };
+const statusColors: Record<OpenStatus, { background: string; border: string; text: string; subtext: string }> = {
+  open: { background: "#f0fdf4", border: "#86efac", text: "#166534", subtext: "#15803d" },
+  partial: { background: "#fefce8", border: "#fde047", text: "#854d0e", subtext: "#a16207" },
+  full: { background: "#fef2f2", border: "#fca5a5", text: "#991b1b", subtext: "#b91c1c" },
+};
+
 export default function ViewFoodRequestsModal({ meal, onClose }: ViewFoodRequestsModalProps) {
-  const items = (meal.food_requests ?? []).filter((it) => it.quantity > 0);
+  const items = (meal.food_requests ?? [])
+    .filter((it) => it.quantity > 0)
+    .map((item) => {
+      const chosen = currentlyChosenCount(item.food, meal);
+      const remaining = Math.max(0, item.quantity - chosen);
+      return { item, chosen, remaining, status: openStatus(chosen, item.quantity) };
+    })
+    .sort((a, b) => statusRank[a.status] - statusRank[b.status] || b.remaining - a.remaining);
   const enforced = !!meal.food_requests_enforced;
 
   return (
@@ -72,9 +95,8 @@ export default function ViewFoodRequestsModal({ meal, onClose }: ViewFoodRequest
         </p>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {items.map((item) => {
-            const chosen = currentlyChosenCount(item.food, meal);
-            const remaining = Math.max(0, item.quantity - chosen);
+          {items.map(({ item, remaining, status }) => {
+            const colors = statusColors[status];
             return (
               <div
                 key={item.food}
@@ -84,13 +106,13 @@ export default function ViewFoodRequestsModal({ meal, onClose }: ViewFoodRequest
                   alignItems: "center",
                   padding: "12px 14px",
                   borderRadius: 12,
-                  background: "#fff7ed",
-                  border: "2px solid #fed7aa",
+                  background: colors.background,
+                  border: `2px solid ${colors.border}`,
                 }}
               >
-                <div style={{ fontWeight: 800, fontSize: "0.95rem", color: "#9a3412" }}>{formatFood(item.food)}</div>
-                <div style={{ fontSize: "0.85rem", color: "#78350f", fontWeight: 600 }}>
-                  {remaining} of {item.quantity} still open
+                <div style={{ fontWeight: 800, fontSize: "0.95rem", color: colors.text }}>{formatFood(item.food)}</div>
+                <div style={{ fontSize: "0.85rem", color: colors.subtext, fontWeight: 600 }}>
+                  {remaining} out of {item.quantity} open
                 </div>
               </div>
             );

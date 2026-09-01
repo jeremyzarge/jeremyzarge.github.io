@@ -133,6 +133,11 @@ export default function App() {
   const [showDataSecurity, setShowDataSecurity] = useState(false);
   const [showAdminStats, setShowAdminStats] = useState(false);
   const [showPWAInstructions, setShowPWAInstructions] = useState(false);
+  const [pwaBannerDismissed, setPwaBannerDismissed] = useState(
+    () => localStorage.getItem("pwa_banner_dismissed") === "1"
+  );
+  const isMobilePWACandidate =
+    window.innerWidth <= 768 && !window.matchMedia("(display-mode: standalone)").matches;
   const [showWeeklyStatusPrompt, setShowWeeklyStatusPrompt] = useState(false);
   const isAdmin = authUser?.email === "jeremyzarge@gmail.com";
 
@@ -673,6 +678,68 @@ export default function App() {
 
   return (
     <div className="has-bottom-nav" style={{ width: "100%", maxWidth: 1200, margin: "0 auto" }}>
+
+      {/* Mobile-only banner nudging people to add the app to their home screen.
+          The CSS breakpoint (not just the JS width check) is what actually keeps
+          this off desktop — same convention as .mobile-hidden elsewhere. */}
+      {isMobilePWACandidate && !pwaBannerDismissed && (
+        <div
+          className="pwa-banner mobile-only"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "10px 14px",
+            marginBottom: 12,
+            borderRadius: 12,
+            background: "linear-gradient(135deg, #fb923c 0%, #ea580c 100%)",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              localStorage.setItem("pwa_banner_dismissed", "1");
+              setPwaBannerDismissed(true);
+              setActiveTab("profile");
+              setShowPWAInstructions(true);
+            }}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              background: "none",
+              border: "none",
+              color: "white",
+              fontWeight: 700,
+              fontSize: "0.85rem",
+              textAlign: "left",
+              cursor: "pointer",
+              padding: 0,
+              fontFamily: "Inter, sans-serif",
+            }}
+          >
+            📲 Add ViteMeals to your Home Screen — tap for instructions
+          </button>
+          <button
+            type="button"
+            onClick={() => { localStorage.setItem("pwa_banner_dismissed", "1"); setPwaBannerDismissed(true); }}
+            aria-label="Dismiss"
+            style={{
+              flexShrink: 0,
+              background: "none",
+              border: "none",
+              color: "white",
+              fontSize: "1.1rem",
+              fontWeight: 700,
+              cursor: "pointer",
+              padding: "0 4px",
+              lineHeight: 1,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Desktop welcome header — hidden on mobile (profile tab handles it) */}
       <div className="welcome-header mobile-hidden" style={{ marginBottom: 24 }}>

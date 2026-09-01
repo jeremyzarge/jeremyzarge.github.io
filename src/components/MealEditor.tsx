@@ -13,6 +13,8 @@ import ClickableUserName from "./ClickableUserName";
 import { notifyUsers, logEvent } from "../notifications";
 import FoodRequestsModal from "./FoodRequestsModal";
 import ViewFoodRequestsModal from "./ViewFoodRequestsModal";
+import ManageParticipantsModal from "./ManageParticipantsModal";
+import InfoTooltip from "./InfoTooltip";
 
 /** Deterministic color from user ID for message names */
 const nameColors = [
@@ -87,9 +89,8 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
   const [activeTab, setActiveTab] = useState<"info" | "participants" | "messages">(isCreateMode ? "info" : "participants");
   const [showManageFoodRequests, setShowManageFoodRequests] = useState(false);
   const [showViewFoodRequests, setShowViewFoodRequests] = useState(false);
+  const [showManageParticipants, setShowManageParticipants] = useState(false);
 
-  // For adding participants
-  const [selectedUserId, setSelectedUserId] = useState("");
   const [copiedInvite, setCopiedInvite] = useState(false);
 
   // OneTable sync
@@ -145,11 +146,6 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     : !otDateChecks.canSync ? "Past the Tuesday deadline for this meal"
     : otWeekConflict ? "You already have a OneTable meal this week"
     : null;
-
-  // Searchable combobox for participant selection
-  const [userSearch, setUserSearch] = useState("");
-  const [userDropdownOpen, setUserDropdownOpen] = useState(false);
-  const userComboRef = useRef<HTMLDivElement>(null);
 
   // Searchable combobox for host apartment selection
   const [aptSearch, setAptSearch] = useState("");
@@ -383,9 +379,6 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
   // Close combobox dropdowns on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (userComboRef.current && !userComboRef.current.contains(e.target as Node)) {
-        setUserDropdownOpen(false);
-      }
       if (aptComboRef.current && !aptComboRef.current.contains(e.target as Node)) {
         setAptDropdownOpen(false);
       }
@@ -547,50 +540,6 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
   }, [getAllowedFoodsForParticipant]);
 
   /**
-   * Add a participant to the meal (host authorization required)
-   * Hosts are auto-accepted, guests start as invited (accepted: false)
-   */
-  const addParticipant = () => {
-    if (!isHost || !selectedUserId || !meal) return;
-    if (selectedUserId in meal.participants) return;
-
-    const user = users.find((u) => u.id === selectedUserId);
-    if (!user) return;
-
-    // Auto-determine role based on apartment, but never auto-accept —
-    // every added participant must accept their invitation individually
-    const role = user.apartment === meal.host_apartment_id ? "host" : "guest";
-
-    setMeal((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        participants: {
-          ...prev.participants,
-          [selectedUserId]: { food: "none", specifics: "", role },
-        },
-      };
-    });
-
-    setSelectedUserId("");
-    setUserSearch("");
-  };
-
-  /**
-   * Remove a participant from the meal (host authorization required)
-   */
-  const removeParticipant = (userId: string) => {
-    if (!isHost || !meal) return;
-
-    setMeal((prev) => {
-      if (!prev) return prev;
-      const updated = { ...prev.participants };
-      delete updated[userId];
-      return { ...prev, participants: updated };
-    });
-  };
-
-  /**
    * Allow current user to leave the meal (remove themselves)
    * Any participant can leave, but the last host cannot leave
    */
@@ -659,36 +608,6 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     if (!meal) return false;
     const user = users.find((u) => u.id === userId);
     return user?.apartment === meal.host_apartment_id;
-  };
-
-  /**
-   * Toggle participant role between host and guest (host authorization required)
-   * Note: Residents of the host apartment cannot be made guests
-   */
-  const toggleRole = (userId: string) => {
-    if (!isHost || !meal) return;
-
-    const participant = meal.participants[userId];
-    if (!participant) return;
-
-    // If user is a resident of host apartment and currently a host, don't allow changing to guest
-    if (isResidentOfHostApartment(userId) && participant.role === "host") {
-      return; // Residents must remain hosts
-    }
-
-    setMeal((prev) => {
-      if (!prev) return prev;
-      const p = prev.participants[userId];
-      if (!p) return prev;
-
-      return {
-        ...prev,
-        participants: {
-          ...prev.participants,
-          [userId]: { ...p, role: p.role === "host" ? "guest" : "host" },
-        },
-      };
-    });
   };
 
   /**
@@ -1061,6 +980,84 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
   };
 
   /**
+   * Apply participant changes from the Manage Participants modal.
+   * In create mode there's no meal in the database yet, so changes are just staged
+   * locally (picked up by the eventual Create Meal save). For an existing meal, this
+   * writes straight to the database — invites, kicks, and role changes take effect
+   * immediately rather than waiting on the overall meal Save.
+   */
+  const handleParticipantsSave = async (newParticipants: Record<string, MealParticipant>) => {
+    if (!meal) return;
+
+    if (isCreateMode || !mealId) {
+      setMeal((prev) => (prev ? { ...prev, participants: newParticipants } : prev));
+      return;
+    }
+
+    const prevParticipants = meal.participants;
+
+    try {
+      await set(ref(rtdb, `meal_events/${mealId}/participants`), newParticipants);
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to save participant changes: " + err.message);
+      throw err;
+    }
+
+    setOriginalMeal((prev) => (prev ? { ...prev, participants: structuredClone(newParticipants) } : prev));
+
+    const myName = (() => {
+      const me = users.find((u) => u.id === currentUserId);
+      return me ? `${me.first_name} ${me.last_name}`.trim() : "The host";
+    })();
+
+    // Newly invited participants
+    const addedIds = Object.keys(newParticipants).filter((id) => !prevParticipants[id] && id !== currentUserId);
+    notifyUsers(addedIds, {
+      title: "New meal invitation 🍽️",
+      body: `${myName} invited you to "${meal.title}"`,
+      tag: `meal-invite-${mealId}`,
+      data: { tab: "upcoming", mealId, invited: "true" },
+    }, "meal_food");
+    if (addedIds.length > 0) {
+      logEvent("meal_invite_sent", { mealId, userId: currentUserId, invitedCount: addedIds.length });
+    }
+
+    // Removed participants — cancel their OneTable reservations if any, then notify
+    const removedIds = Object.keys(prevParticipants).filter((id) => !newParticipants[id] && id !== currentUserId);
+    for (const removedId of removedIds) {
+      const reservationId = meal.onetable_reservations?.[removedId];
+      if (reservationId) {
+        try {
+          await hostCancelReservation(mealId, removedId, reservationId);
+        } catch (err) {
+          console.error("[OT] Failed to cancel removed participant's reservation:", err);
+        }
+      }
+    }
+    notifyUsers(removedIds, {
+      title: "Removed from meal",
+      body: `You were removed from "${meal.title}"`,
+      tag: `meal-removed-${mealId}`,
+      data: { tab: "upcoming" },
+    }, "meal_food");
+
+    // Role changes
+    for (const [uid, p] of Object.entries(newParticipants)) {
+      if (uid === currentUserId) continue;
+      const prev = prevParticipants[uid];
+      if (prev && p.role !== prev.role) {
+        notifyUsers([uid], {
+          title: "Your role was changed",
+          body: `You are now a ${p.role} for "${meal.title}"`,
+          tag: `meal-role-${mealId}-${uid}`,
+          data: { tab: "upcoming", mealId },
+        }, "meal_food");
+      }
+    }
+  };
+
+  /**
    * Save only the current user's own participant entry (for non-hosts)
    */
   const handleNonHostSave = async () => {
@@ -1191,21 +1188,6 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     return getAllergenCounts(acceptedParticipantIds, users);
   }, [meal, users]);
 
-  // Get users available to add (not already participants), friends first
-  const friendSet = useMemo(() => new Set(friendIds || []), [friendIds]);
-  const availableUsers = useMemo(() => {
-    if (!meal) return [];
-    const participantIds = new Set(Object.keys(meal.participants));
-    const available = users.filter((u) => !participantIds.has(u.id));
-    // Sort friends first, then alphabetical within each group
-    return available.sort((a, b) => {
-      const aIsFriend = friendSet.has(a.id) ? 0 : 1;
-      const bIsFriend = friendSet.has(b.id) ? 0 : 1;
-      if (aIsFriend !== bIsFriend) return aIsFriend - bIsFriend;
-      return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
-    });
-  }, [users, meal, friendSet]);
-
   // Apartments filtered by search text, user's own apartment first
   const filteredApartments = useMemo(() => {
     const q = aptSearch.toLowerCase();
@@ -1218,16 +1200,6 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     });
   }, [apartments, aptSearch, users, currentUserId]);
 
-  // Filtered users for the combobox dropdown — empty until something is typed
-  const filteredComboUsers = useMemo(() => {
-    if (!userSearch.trim()) return [];
-    const q = userSearch.toLowerCase();
-    return availableUsers.filter((u) =>
-      `${u.first_name} ${u.last_name}`.toLowerCase().includes(q) ||
-      (apartments.find((a) => a.id === u.apartment)?.name || "").toLowerCase().includes(q)
-    );
-  }, [availableUsers, userSearch, apartments]);
-
   // Get participants with user info
   const participantsWithInfo = useMemo(() => {
     if (!meal) return [];
@@ -1237,13 +1209,9 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     });
   }, [meal, users]);
 
-  // Separate accepted participants from invited (pending)
+  // Accepted participants — pending invites are managed in the Manage Participants modal (host-only)
   const acceptedParticipants = useMemo(() => {
     return participantsWithInfo.filter(({ participant }) => participant.accepted === true);
-  }, [participantsWithInfo]);
-
-  const invitedParticipants = useMemo(() => {
-    return participantsWithInfo.filter(({ participant }) => participant.accepted !== true);
   }, [participantsWithInfo]);
 
   if (loading || !meal) {
@@ -1847,119 +1815,27 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
 
         {activeTab === "participants" && (
           <div style={{ marginTop: 12 }}>
-            {isHost && !isPastMeal && (
-              <div
-                style={{
-                  marginBottom: 20,
-                  padding: 16,
-                  background: "linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)",
-                  borderRadius: 12,
-                  border: "2px solid #60a5fa",
-                }}
-              >
-                <div style={{ marginBottom: 12, fontWeight: 800, color: "#1e40af", fontSize: "1rem" }}>
-                  👥 Add Participant
-                </div>
-                <div className="add-participant-row" style={{ display: "flex", gap: 12 }}>
-                  <div ref={userComboRef} style={{ flex: 1, minWidth: 0, position: "relative" }}>
-                    <input
-                      value={userSearch}
-                      onChange={(e) => {
-                        setUserSearch(e.target.value);
-                        setSelectedUserId("");
-                        setUserDropdownOpen(true);
-                      }}
-                      onFocus={() => setUserDropdownOpen(true)}
-                      placeholder="Search for a user..."
-                      style={{
-                        width: "100%",
-                        padding: "12px 16px",
-                        borderRadius: 12,
-                        border: "2px solid #60a5fa",
-                        fontWeight: 600,
-                        fontSize: "0.95rem",
-                        background: "white",
-                        fontFamily: "Inter, sans-serif",
-                        boxSizing: "border-box",
-                      }}
-                    />
-                    {userDropdownOpen && filteredComboUsers.length > 0 && (
-                      <div
-                        style={{
-                          position: "absolute",
-                          top: "calc(100% + 4px)",
-                          left: 0,
-                          right: 0,
-                          background: "white",
-                          border: "2px solid #60a5fa",
-                          borderRadius: 10,
-                          zIndex: 200,
-                          maxHeight: 220,
-                          overflowY: "auto",
-                          boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
-                        }}
-                      >
-                        {filteredComboUsers.map((u) => (
-                          <div
-                            key={u.id}
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              setSelectedUserId(u.id);
-                              setUserSearch(`${u.first_name} ${u.last_name}`);
-                              setUserDropdownOpen(false);
-                            }}
-                            style={{
-                              padding: "10px 16px",
-                              cursor: "pointer",
-                              fontWeight: 600,
-                              fontSize: "0.95rem",
-                              borderBottom: "1px solid #f3f4f6",
-                              display: "flex",
-                              gap: 6,
-                              alignItems: "center",
-                            }}
-                            onMouseEnter={(e) => (e.currentTarget.style.background = "#eff6ff")}
-                            onMouseLeave={(e) => (e.currentTarget.style.background = "white")}
-                          >
-                            <span>{u.first_name} {u.last_name}</span>
-                            {friendSet.has(u.id) && (
-                              <span style={{ fontSize: "0.75rem", color: "#6366f1", fontWeight: 700 }}>friend</span>
-                            )}
-                            <span style={{ fontSize: "0.8rem", color: "#9ca3af", marginLeft: "auto" }}>
-                              {apartments.find((a) => a.id === u.apartment)?.name || "No apt"}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+            {(isHost && !isPastMeal || (!isCreateMode && mealId)) && (
+              <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+                {isHost && !isPastMeal && (
                   <button
                     type="button"
-                    onClick={addParticipant}
-                    disabled={!selectedUserId}
+                    onClick={() => setShowManageParticipants(true)}
                     style={{
-                      padding: "12px 24px",
-                      borderRadius: 12,
+                      padding: "10px 16px",
+                      borderRadius: 10,
                       border: "none",
-                      background: selectedUserId
-                        ? "linear-gradient(135deg, #10b981 0%, #059669 100%)"
-                        : "#d1d5db",
+                      background: "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)",
                       color: "white",
-                      cursor: selectedUserId ? "pointer" : "not-allowed",
                       fontWeight: 700,
-                      fontSize: "1rem",
-                      boxShadow: selectedUserId ? "0 4px 12px rgba(16, 185, 129, 0.3)" : "none",
+                      fontSize: "0.85rem",
+                      cursor: "pointer",
                     }}
                   >
-                    Add
+                    👥 Manage Participants
                   </button>
-                </div>
-              </div>
-            )}
-
-            {!isCreateMode && mealId && (
-              <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
-                {isHost && !isPastMeal && (
+                )}
+                {isHost && !isPastMeal && !isCreateMode && mealId && (
                   <button
                     type="button"
                     onClick={() => setShowManageFoodRequests(true)}
@@ -1977,7 +1853,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                     🍽️ Manage Food Requests
                   </button>
                 )}
-                {(meal.food_requests?.some((it) => it.quantity > 0) ?? false) && (
+                {!isCreateMode && mealId && (meal.food_requests?.some((it) => it.quantity > 0) ?? false) && (
                   <button
                     type="button"
                     onClick={() => setShowViewFoodRequests(true)}
@@ -1998,9 +1874,28 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
               </div>
             )}
 
-            <h4 style={{ marginBottom: 16, fontWeight: 800, fontSize: "1.05rem", color: "#374151" }}>
-              Participants ({acceptedParticipants.length})
-            </h4>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h4 style={{ margin: 0, fontWeight: 800, fontSize: "1.05rem", color: "#374151" }}>
+                Participants ({acceptedParticipants.length})
+              </h4>
+              {!isPastMeal && (
+                <InfoTooltip
+                  title="Table icons"
+                  items={[
+                    {
+                      icon: "+",
+                      iconBg: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                      text: "Add food item",
+                    },
+                    {
+                      icon: "−",
+                      iconBg: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
+                      text: "Remove food item",
+                    },
+                  ]}
+                />
+              )}
+            </div>
 
             {acceptedParticipants.length === 0 ? (
               <div
@@ -2028,7 +1923,6 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ background: "linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%)" }}>
-                      {!isPastMeal && <th style={{ width: 44, padding: "14px 4px 14px 12px" }} />}
                       <th
                         style={{
                           textAlign: "center",
@@ -2063,30 +1957,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                       >
                         Specifics
                       </th>
-                      <th
-                        style={{
-                          textAlign: "center",
-                          padding: "14px 12px",
-                          fontWeight: 800,
-                          fontSize: "0.9rem",
-                          color: "#374151",
-                        }}
-                      >
-                        Role
-                      </th>
-                      {!isPastMeal && (
-                        <th
-                          style={{
-                            textAlign: "left",
-                            padding: "14px 12px",
-                            fontWeight: 800,
-                            fontSize: "0.9rem",
-                            color: "#374151",
-                          }}
-                        >
-                          Actions
-                        </th>
-                      )}
+                      {!isPastMeal && <th style={{ width: 40, padding: "14px 12px 14px 4px" }} />}
                     </tr>
                   </thead>
                   <tbody>
@@ -2119,46 +1990,25 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                           onMouseEnter={(e) => (e.currentTarget.style.background = "#f9fafb")}
                           onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                         >
-                          {!isPastMeal && (
-                            <td style={{ padding: "12px 4px 12px 12px" }}>
-                              {isHost && userId !== currentUserId && (
-                                <button
-                                  type="button"
-                                  className="remove-btn"
-                                  onClick={() => removeParticipant(userId)}
-                                  title="Remove from meal"
-                                  style={{
-                                    width: 30,
-                                    height: 30,
-                                    borderRadius: "50%",
-                                    border: "none",
-                                    background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
-                                    color: "white",
-                                    cursor: "pointer",
-                                    fontWeight: 700,
-                                    fontSize: "1.1rem",
-                                    lineHeight: 1,
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                  }}
-                                >
-                                  −
-                                </button>
-                              )}
-                            </td>
-                          )}
-                          <td style={{ padding: "12px", fontWeight: 600, color: "#374151", textAlign: "center" }}>
+                          <td style={{ padding: "12px", fontWeight: 700, textAlign: "center" }}>
                             {onViewProfile ? (
                               <ClickableUserName
                                 userId={userId}
                                 firstName={user.first_name}
                                 lastName={user.last_name}
                                 onClick={onViewProfile}
-                                style={{ whiteSpace: "normal", overflow: "visible", textOverflow: "unset", textAlign: "center" }}
+                                style={{
+                                  whiteSpace: "normal",
+                                  overflow: "visible",
+                                  textOverflow: "unset",
+                                  textAlign: "center",
+                                  color: participant.role === "host" ? "#2563eb" : "#374151",
+                                }}
                               />
                             ) : (
-                              <>{user.first_name} {user.last_name}</>
+                              <span style={{ color: participant.role === "host" ? "#2563eb" : "#374151" }}>
+                                {user.first_name} {user.last_name}
+                              </span>
                             )}
                           </td>
                           <td style={{ padding: "12px" }}>
@@ -2210,60 +2060,32 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                               }}
                             />
                           </td>
-                          <td style={{ padding: "12px" }}>
-                            {(() => {
-                              const isResident = isResidentOfHostApartment(userId);
-                              const canToggle = isHost && !isPastMeal && !(isResident && participant.role === "host");
-                              return (
-                                <button
-                                  type="button"
-                                  className="role-btn"
-                                  onClick={() => toggleRole(userId)}
-                                  disabled={!canToggle}
-                                  title={isResident && participant.role === "host" ? "Residents of host apartment must be hosts" : ""}
-                                  style={{
-                                    padding: "6px 14px",
-                                    borderRadius: 20,
-                                    border: "none",
-                                    background:
-                                      participant.role === "host"
-                                        ? "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)"
-                                        : "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-                                    color: "white",
-                                    fontSize: "0.85rem",
-                                    fontWeight: 700,
-                                    cursor: canToggle ? "pointer" : "not-allowed",
-                                    boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-                                    opacity: canToggle ? 1 : 0.6,
-                                    whiteSpace: "nowrap",
-                                  }}
-                                >
-                                  {participant.role === "host" ? "🏠 Host" : "Guest"}
-                                </button>
-                              );
-                            })()}
-                          </td>
                           {!isPastMeal && (
-                            <td style={{ padding: "12px" }}>
+                            <td style={{ padding: "12px 12px 12px 4px", textAlign: "right" }}>
                               {(isHost || userId === currentUserNumericId) && !invitedMode && (
                                 <button
                                   type="button"
                                   className="add-item-btn"
                                   onClick={() => addAdditionalItem(userId)}
+                                  aria-label="Add another item"
                                   style={{
-                                    padding: "6px 14px",
-                                    borderRadius: 20,
+                                    width: 26,
+                                    height: 26,
+                                    borderRadius: "50%",
                                     border: "none",
                                     background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
                                     color: "white",
                                     cursor: "pointer",
-                                    fontWeight: 700,
-                                    fontSize: "0.85rem",
-                                    whiteSpace: "nowrap",
-                                    boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+                                    fontWeight: 800,
+                                    fontSize: "0.95rem",
+                                    lineHeight: 1,
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    boxShadow: "0 2px 6px rgba(16, 185, 129, 0.35)",
                                   }}
                                 >
-                                  Add Item
+                                  +
                                 </button>
                               )}
                             </td>
@@ -2278,35 +2100,6 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                               key={`${userId}-extra-${idx}`}
                               style={{ borderBottom: "1px solid #e5e7eb", background: "#f9fafb" }}
                             >
-                              {!isPastMeal && (
-                                <td style={{ padding: "6px 4px 6px 12px" }}>
-                                  {canEditItem && (
-                                    <button
-                                      type="button"
-                                      className="remove-btn"
-                                      onClick={() => removeAdditionalItem(userId, idx)}
-                                      title="Remove item"
-                                      style={{
-                                        width: 30,
-                                        height: 30,
-                                        borderRadius: "50%",
-                                        border: "none",
-                                        background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
-                                        color: "white",
-                                        cursor: "pointer",
-                                        fontWeight: 700,
-                                        fontSize: "1.1rem",
-                                        lineHeight: 1,
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                      }}
-                                    >
-                                      −
-                                    </button>
-                                  )}
-                                </td>
-                              )}
                               <td style={{ padding: "6px 12px 6px 28px", color: "#9ca3af", fontSize: "0.8rem", fontWeight: 700 }}>
                                 ↳ extra
                               </td>
@@ -2352,8 +2145,35 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                                   }}
                                 />
                               </td>
-                              <td />
-                              {!isPastMeal && <td />}
+                              {!isPastMeal && (
+                                <td style={{ padding: "6px 12px 6px 4px", textAlign: "right" }}>
+                                  {canEditItem && (
+                                    <button
+                                      type="button"
+                                      className="remove-item-btn"
+                                      onClick={() => removeAdditionalItem(userId, idx)}
+                                      aria-label="Remove item"
+                                      style={{
+                                        width: 26,
+                                        height: 26,
+                                        borderRadius: "50%",
+                                        border: "none",
+                                        background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
+                                        color: "white",
+                                        cursor: "pointer",
+                                        fontWeight: 700,
+                                        fontSize: "1.05rem",
+                                        lineHeight: 1,
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                      }}
+                                    >
+                                      −
+                                    </button>
+                                  )}
+                                </td>
+                              )}
                             </tr>
                           );
                         })}
@@ -2365,69 +2185,6 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
               </div>
             )}
 
-            {/* Invited (pending) participants section */}
-            {invitedParticipants.length > 0 && !isPastMeal && (
-              <div style={{ marginTop: 24 }}>
-                <h4 style={{ marginBottom: 12, fontWeight: 800, fontSize: "1.05rem", color: "#9ca3af" }}>
-                  Pending ({invitedParticipants.length})
-                </h4>
-                <div
-                  style={{
-                    background: "#f9fafb",
-                    borderRadius: 12,
-                    border: "2px solid #e5e7eb",
-                    padding: "0 16px",
-                  }}
-                >
-                  {invitedParticipants.map(({ userId, user }) => (
-                    <div
-                      key={userId}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        padding: "10px 0",
-                        borderBottom: "1px solid #e5e7eb",
-                      }}
-                    >
-                      <span style={{ fontWeight: 600, color: "#6b7280" }}>
-                        {onViewProfile && user ? (
-                          <ClickableUserName
-                            userId={userId}
-                            firstName={user.first_name}
-                            lastName={user.last_name}
-                            onClick={onViewProfile}
-                            style={{ whiteSpace: "normal", overflow: "visible", textOverflow: "unset" }}
-                          />
-                        ) : (
-                          <>{user?.first_name} {user?.last_name}</>
-                        )}
-                      </span>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                        {isHost && userId !== currentUserId && (
-                          <button
-                            type="button"
-                            onClick={() => removeParticipant(userId)}
-                            style={{
-                              padding: "5px 12px",
-                              borderRadius: 8,
-                              border: "none",
-                              background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
-                              color: "white",
-                              cursor: "pointer",
-                              fontWeight: 700,
-                              fontSize: "0.85rem",
-                            }}
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         )}
 
@@ -3061,6 +2818,19 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
         <ViewFoodRequestsModal
           meal={meal}
           onClose={() => setShowViewFoodRequests(false)}
+        />
+      )}
+      {showManageParticipants && meal && (
+        <ManageParticipantsModal
+          meal={meal}
+          users={users}
+          apartments={apartments}
+          friendIds={friendIds}
+          currentUserId={currentUserId}
+          onViewProfile={onViewProfile}
+          isResidentOfHostApartment={isResidentOfHostApartment}
+          onSave={handleParticipantsSave}
+          onClose={() => setShowManageParticipants(false)}
         />
       )}
     </div>

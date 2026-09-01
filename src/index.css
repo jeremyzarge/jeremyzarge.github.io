@@ -55,11 +55,14 @@ body {
 .mobile-bottom-nav { display: none; }
 /* Elements hidden on mobile */
 .mobile-hidden { display: block; }
+/* Elements shown only on mobile (e.g. the PWA install banner) */
+.mobile-only { display: none !important; }
 
 @media (max-width: 768px) {
   .desktop-tabs { display: none !important; }
   .mobile-bottom-nav { display: flex !important; }
   .mobile-hidden { display: none !important; }
+  .mobile-only { display: flex !important; }
 
   html {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
@@ -296,16 +299,6 @@ body {
     padding: 8px 12px !important;
   }
 
-  /* Add participant row - stack on mobile */
-  .add-participant-row {
-    flex-direction: column !important;
-    gap: 8px !important;
-  }
-
-  .add-participant-row select {
-    width: 100% !important;
-  }
-
   /* Invitation rows (MyMeals pending invitations) */
   .invitation-row {
     flex-direction: column !important;
@@ -409,67 +402,48 @@ body {
     overflow: hidden !important;
   }
 
-  /* Past meals: 4 cols — Name / Food / Specifics / Role */
+  /* Past meals: 3 cols — Name / Food / Specifics. Name gets the most room. */
   .participant-table:not(.participant-table--active) table th:nth-child(1),
   .participant-table:not(.participant-table--active) table td:nth-child(1) {
-    width: 95px !important;
-  }
-  .participant-table:not(.participant-table--active) table th:nth-child(2),
-  .participant-table:not(.participant-table--active) table td:nth-child(2) {
-    width: 70px !important;
-  }
-  .participant-table:not(.participant-table--active) table th:nth-child(3),
-  .participant-table:not(.participant-table--active) table td:nth-child(3) {
-    width: 130px !important;
-  }
-  .participant-table:not(.participant-table--active) table th:nth-child(4),
-  .participant-table:not(.participant-table--active) table td:nth-child(4) {
-    width: 55px !important;
-  }
-
-  /* Active meals: 6 cols — Remove / Name / Food / Specifics / Role / Actions */
-  .participant-table--active {
-    font-size: 0.6rem !important;
-  }
-
-  .participant-table--active th,
-  .participant-table--active td {
-    padding: 5px 2px !important;
-    vertical-align: middle !important;
-  }
-
-  /* % widths so table always fits the container */
-  .participant-table--active table th:nth-child(1),
-  .participant-table--active table td:nth-child(1) {
-    width: 6% !important;
-    padding-left: 1px !important;
-    padding-right: 1px !important;
-  }
-  .participant-table--active table th:nth-child(2),
-  .participant-table--active table td:nth-child(2) {
-    width: 20% !important;
+    width: 34% !important;
     white-space: normal !important;
     word-break: break-word !important;
   }
+  .participant-table:not(.participant-table--active) table th:nth-child(2),
+  .participant-table:not(.participant-table--active) table td:nth-child(2) {
+    width: 22% !important;
+  }
+  .participant-table:not(.participant-table--active) table th:nth-child(3),
+  .participant-table:not(.participant-table--active) table td:nth-child(3) {
+    width: 44% !important;
+  }
 
+  /* Active meals: 4 cols — Name / Food / Specifics / (+ or −) action */
+  .participant-table--active th,
+  .participant-table--active td {
+    padding: 6px 3px !important;
+    vertical-align: middle !important;
+  }
+
+  .participant-table--active table th:nth-child(1),
+  .participant-table--active table td:nth-child(1) {
+    width: 36% !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+  }
+  .participant-table--active table th:nth-child(2),
   .participant-table--active table td:nth-child(2) {
-    font-size: 0.5rem !important;
+    width: 23% !important;
   }
   .participant-table--active table th:nth-child(3),
   .participant-table--active table td:nth-child(3) {
-    width: 22% !important;
+    width: 32% !important;
   }
   .participant-table--active table th:nth-child(4),
   .participant-table--active table td:nth-child(4) {
-    width: 18% !important;
-  }
-  .participant-table--active table th:nth-child(5),
-  .participant-table--active table td:nth-child(5) {
-    width: 16% !important;
-  }
-  .participant-table--active table th:nth-child(6),
-  .participant-table--active table td:nth-child(6) {
-    width: 15% !important;
+    width: 24px !important;
+    padding-left: 2px !important;
+    padding-right: 2px !important;
   }
 
   /* Food + Specifics selects/inputs — shrink to column width */
@@ -477,31 +451,19 @@ body {
   .participant-table input[type="text"] {
     min-width: 0 !important;
     width: 100% !important;
-    padding: 2px 3px !important;
-    font-size: 0.6rem !important;
+    padding: 3px 4px !important;
+    font-size: 0.65rem !important;
   }
 
-  /* Remove (−) button — tiny circle */
-  .participant-table .remove-btn {
+  /* Add-item (+) / remove-item (−) icon buttons — identical small circles, right-aligned column */
+  .participant-table .add-item-btn,
+  .participant-table .remove-item-btn {
     width: 18px !important;
     height: 18px !important;
     min-width: unset !important;
-    font-size: 0.75rem !important;
+    font-size: 0.7rem !important;
     padding: 0 !important;
     flex-shrink: 0 !important;
-  }
-
-  /* Role pill + Add Item pill — identical size */
-  .participant-table .role-btn,
-  .participant-table .add-item-btn {
-    padding: 3px 6px !important;
-    font-size: 0.6rem !important;
-    border-radius: 20px !important;
-    box-shadow: none !important;
-    white-space: nowrap !important;
-    width: 100% !important;
-    text-align: center !important;
-    box-sizing: border-box !important;
   }
 
   /* Compact card sections */
