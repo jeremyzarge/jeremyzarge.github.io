@@ -178,6 +178,23 @@ export default function App() {
     return () => navigator.serviceWorker.removeEventListener("message", handler);
   }, []);
 
+  // Clear the app icon badge and any lingering tray notifications once the
+  // user has actually seen the app (covers opening via icon tap, not just
+  // clicking a specific notification).
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    async function clearBadge() {
+      if (document.visibilityState !== "visible") return;
+      if ("clearAppBadge" in navigator) navigator.clearAppBadge();
+      const registration = await navigator.serviceWorker.ready;
+      const notifications = await registration.getNotifications();
+      notifications.forEach((n) => n.close());
+    }
+    clearBadge();
+    document.addEventListener("visibilitychange", clearBadge);
+    return () => document.removeEventListener("visibilitychange", clearBadge);
+  }, []);
+
   // Apply cold-start notification nav once the profile is ready
   useEffect(() => {
     if (!profile || !myId || !pendingNotifData.current) return;
