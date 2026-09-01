@@ -26,17 +26,31 @@ self.addEventListener("fetch", (e) => {
 
 // ─── Push Notifications ───────────────────────────────────────────────────────
 
+// Sets the home-screen app icon badge to the number of notifications
+// currently sitting in the OS tray for this app (best-effort, Chrome/Edge/iOS 16.4+).
+async function updateAppBadge() {
+  if (!("setAppBadge" in self.navigator)) return;
+  const notifications = await self.registration.getNotifications();
+  if (notifications.length > 0) {
+    await self.navigator.setAppBadge(notifications.length);
+  } else {
+    await self.navigator.clearAppBadge();
+  }
+}
+
 self.addEventListener("push", (e) => {
   const data = e.data ? e.data.json() : {};
   e.waitUntil(
-    self.registration.showNotification(data.title || "ViteMeals", {
-      body: data.body || "",
-      icon: "/icon.svg",
-      badge: "/icon.svg",
-      tag: data.tag || "vitemeals",
-      data: data.data || {},
-      vibrate: [100, 50, 100],
-    })
+    self.registration
+      .showNotification(data.title || "ViteMeals", {
+        body: data.body || "",
+        icon: "/icon.svg",
+        badge: "/icon.svg",
+        tag: data.tag || "vitemeals",
+        data: data.data || {},
+        vibrate: [100, 50, 100],
+      })
+      .then(updateAppBadge)
   );
 });
 
@@ -44,17 +58,20 @@ self.addEventListener("notificationclick", (e) => {
   e.notification.close();
   const data = e.notification.data || {};
   e.waitUntil(
-    clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
-      const existing = wins.find((w) => w.url.includes(self.location.origin));
-      if (existing) {
-        // App is already open — focus it and post nav instructions
-        existing.focus();
-        existing.postMessage({ type: "notification-click", data });
-        return;
-      }
-      // Cold-start — encode nav data in URL so app reads it on mount
-      const param = btoa(JSON.stringify(data));
-      return clients.openWindow("/?notif=" + param);
-    })
+    Promise.all([
+      updateAppBadge(),
+      clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+        const existing = wins.find((w) => w.url.includes(self.location.origin));
+        if (existing) {
+          // App is already open — focus it and post nav instructions
+          existing.focus();
+          existing.postMessage({ type: "notification-click", data });
+          return;
+        }
+        // Cold-start — encode nav data in URL so app reads it on mount
+        const param = btoa(JSON.stringify(data));
+        return clients.openWindow("/?notif=" + param);
+      }),
+    ])
   );
 });
