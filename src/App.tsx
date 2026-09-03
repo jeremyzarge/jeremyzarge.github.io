@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useRef } from "react";
 import { ref, get, set, remove, onValue, off } from "firebase/database";
 import { signOut } from "firebase/auth";
 import type { User } from "firebase/auth";
-import firebaseClient, { rtdb, ensureUserNumericMapping, createNumericApartmentId, loginWithGoogle } from "./firebaseClient";
+import firebaseClient, { rtdb, ensureUserNumericMapping, createNumericApartmentId, loginWithGoogle, redirectSignInError, isLikelyInAppBrowser } from "./firebaseClient";
 import { createOrUpdateUserNumeric } from "./index";
 import { fetchAllUsers, fetchAllApartments, getCurrentWeekStart } from "./utils";
 import { subscribeToRelationships, getFriendIds } from "./friendsService";
@@ -17,7 +17,7 @@ import FriendsTab from "./components/FriendsTab";
 import UserProfileView from "./components/UserProfileView";
 import ApartmentProfileView from "./components/ApartmentProfileView";
 import type { UserProfile, Apartment, UserWithId, UserRelationship, CanBring, Allergies, ApartmentInvite } from "./types";
-import { claimMealInvite, claimFriendInvite } from "./inviteService";
+import { claimMealInvite, claimFriendInvite, generateMealInviteUrl, generateFriendInviteUrl } from "./inviteService";
 import { initPushNotifications, removePushSubscription, notifyUsers, logClientError, logEvent } from "./notifications";
 import {
   subscribeToUserInvites,
@@ -49,12 +49,15 @@ interface ProfileData {
  * Main application component
  */
 export default function App() {
-  // Capture URL params once on load, then strip them from the bar
+  // Capture URL params once on load, then strip them from the bar.
+  // Also fall back to sessionStorage: signInWithRedirect does a full page
+  // navigation away and back, which destroys these refs — sessionStorage
+  // (written in the effect below) survives that round trip.
   const pendingInviteToken = useRef<string | null>(
-    new URLSearchParams(window.location.search).get("invite")
+    new URLSearchParams(window.location.search).get("invite") ?? sessionStorage.getItem("_invite_pending")
   );
   const pendingFriendInviteId = useRef<string | null>(
-    new URLSearchParams(window.location.search).get("friend_invite")
+    new URLSearchParams(window.location.search).get("friend_invite") ?? sessionStorage.getItem("_friend_invite_pending")
   );
   const pendingNotifData = useRef<Record<string, string> | null>((() => {
     const param = new URLSearchParams(window.location.search).get("notif");
@@ -69,8 +72,16 @@ export default function App() {
   useEffect(() => {
     const url = new URL(window.location.href);
     let changed = false;
-    if (pendingInviteToken.current) { url.searchParams.delete("invite"); changed = true; }
-    if (pendingFriendInviteId.current) { url.searchParams.delete("friend_invite"); changed = true; }
+    if (pendingInviteToken.current) {
+      sessionStorage.setItem("_invite_pending", pendingInviteToken.current);
+      url.searchParams.delete("invite");
+      changed = true;
+    }
+    if (pendingFriendInviteId.current) {
+      sessionStorage.setItem("_friend_invite_pending", pendingFriendInviteId.current);
+      url.searchParams.delete("friend_invite");
+      changed = true;
+    }
     if (pendingNotifData.current) { url.searchParams.delete("notif"); changed = true; }
     if (changed) window.history.replaceState({}, "", url.toString());
   }, []);
@@ -82,6 +93,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [authInitialized, setAuthInitialized] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [inviteLinkCopied, setInviteLinkCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<"ledger" | "past" | "upcoming" | "friends" | "profile">("ledger");
   const [showCreate, setShowCreate] = useState(false);
   const [showProfileEditor, setShowProfileEditor] = useState(false);
@@ -215,6 +227,14 @@ export default function App() {
     return { ...snap.val(), ...(privateSnap.exists() ? privateSnap.val() : {}) } as UserProfile;
   }
 
+  // Surface a friendly message if a redirect-based sign-in (the fallback used
+  // by in-app browsers / popup-blocked mobile browsers) failed to complete.
+  useEffect(() => {
+    redirectSignInError.then((msg) => {
+      if (msg) setAuthError(msg);
+    });
+  }, []);
+
   /**
    * Handle authentication state changes
    */
@@ -302,6 +322,7 @@ export default function App() {
           if (pendingInviteToken.current) {
             const token = pendingInviteToken.current;
             pendingInviteToken.current = null;
+            sessionStorage.removeItem("_invite_pending");
             const mealId = await claimMealInvite(token, numericId);
             if (mealId) await handleInviteNavigation(mealId, numericId);
           }
@@ -310,6 +331,7 @@ export default function App() {
           if (pendingFriendInviteId.current) {
             const inviterId = pendingFriendInviteId.current;
             pendingFriendInviteId.current = null;
+            sessionStorage.removeItem("_friend_invite_pending");
             await claimFriendInvite(inviterId, numericId);
             setActiveTab("friends");
           }
@@ -474,6 +496,7 @@ export default function App() {
     if (pendingInviteToken.current) {
       const token = pendingInviteToken.current;
       pendingInviteToken.current = null;
+      sessionStorage.removeItem("_invite_pending");
       const mealId = await claimMealInvite(token, myId);
       if (mealId) await handleInviteNavigation(mealId, myId);
     }
@@ -482,6 +505,7 @@ export default function App() {
     if (pendingFriendInviteId.current) {
       const inviterId = pendingFriendInviteId.current;
       pendingFriendInviteId.current = null;
+      sessionStorage.removeItem("_friend_invite_pending");
       await claimFriendInvite(inviterId, myId);
       setActiveTab("friends");
     }
@@ -635,6 +659,46 @@ export default function App() {
           <p style={{ color: "#6b7280", marginBottom: 24, fontSize: "1.05rem" }}>
             Sign in to manage your Shabbat meals
           </p>
+          {isLikelyInAppBrowser() && (
+            <div
+              style={{
+                background: "#fffbeb",
+                border: "1px solid #fde68a",
+                borderRadius: 10,
+                padding: "12px 14px",
+                marginBottom: 20,
+                textAlign: "left",
+              }}
+            >
+              <p style={{ margin: 0, marginBottom: 8, fontSize: "0.85rem", color: "#92400e" }}>
+                It looks like you're in an in-app browser (opened from Instagram, Facebook, TikTok, or a link preview). Google sign-in often fails here — copy this link and open it in Safari or Chrome instead.
+              </p>
+              <button
+                onClick={() => {
+                  const url = pendingInviteToken.current
+                    ? generateMealInviteUrl(pendingInviteToken.current)
+                    : pendingFriendInviteId.current
+                    ? generateFriendInviteUrl(pendingFriendInviteId.current)
+                    : window.location.href;
+                  navigator.clipboard.writeText(url);
+                  setInviteLinkCopied(true);
+                  setTimeout(() => setInviteLinkCopied(false), 2500);
+                }}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  border: "1px solid #d97706",
+                  background: "white",
+                  color: "#92400e",
+                  fontWeight: 600,
+                  fontSize: "0.85rem",
+                  cursor: "pointer",
+                }}
+              >
+                {inviteLinkCopied ? "Copied!" : "Copy Link"}
+              </button>
+            </div>
+          )}
           <button
             onClick={() => { localStorage.removeItem("manually_signed_out"); loginWithGoogle(); }}
             style={{

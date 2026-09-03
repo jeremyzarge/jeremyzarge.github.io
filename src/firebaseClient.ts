@@ -8,7 +8,7 @@ import { getDatabase, ref, get, set, update, type Database } from "firebase/data
 
 const firebaseConfig = {
   apiKey: "AIzaSyA-mvnZp40kJHJ0qIQZZ6zaFmNMSN5V1C8",
-  authDomain: "vitepotlock.firebaseapp.com",
+  authDomain: "auth.vitemeals.com",
   databaseURL: "https://vitepotlock-default-rtdb.firebaseio.com",
   projectId: "vitepotlock",
   storageBucket: "vitepotlock.firebasestorage.app",
@@ -22,6 +22,18 @@ export const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
 export const rtdb: Database = getDatabase(app);
+
+// In-app browsers (opened from a share sheet inside Instagram, Facebook,
+// Messages link previews, TikTok, etc.) are the main real-world trigger for
+// "missing initial state": Google itself blocks OAuth in most of them
+// (disallowed_useragent), and the ones that aren't blocked outright still
+// tend to partition storage across the redirect. Detecting them lets us
+// steer users to their real browser before they ever hit that failure.
+const IN_APP_BROWSER_PATTERN = /FBAN|FBAV|FB_IAB|FBIOS|Instagram|Line\/|MicroMessenger|TikTok|musical_ly|LinkedInApp|Snapchat/i;
+
+export function isLikelyInAppBrowser(): boolean {
+  return IN_APP_BROWSER_PATTERN.test(navigator.userAgent);
+}
 
 /**
  * Initiates Google OAuth login, preferring a popup with a redirect fallback.
@@ -50,11 +62,27 @@ export async function loginWithGoogle(): Promise<void> {
   }
 }
 
-// Surface any error from a completed redirect sign-in (e.g. account-exists-
-// with-different-credential). Successful sign-in is handled by onAuthStateChanged.
-getRedirectResult(auth).catch((err) => {
-  console.error("Google sign-in redirect failed:", err);
-});
+const REDIRECT_ERROR_MESSAGES: Record<string, string> = {
+  // Firebase's own pending-redirect bookkeeping (its sessionStorage nonce) was
+  // lost between leaving for Google and coming back — typically an in-app
+  // browser (Instagram/Facebook/SMS previews) or IDP-initiated SSO.
+  "auth/missing-or-invalid-nonce": "Sign-in didn't finish because your browser blocked data it needed across the redirect. This is common in in-app browsers (e.g. opening the link from Messages, Instagram, or Facebook). Please open this link in Safari or Chrome directly and try again.",
+  "auth/web-storage-unsupported": "Sign-in didn't finish because your browser is blocking storage this needs (common in Private/Incognito mode). Please try again in a regular browser window.",
+};
+
+/**
+ * Resolves after a completed redirect sign-in, with a user-friendly message
+ * if it failed. Successful sign-in itself is handled by onAuthStateChanged;
+ * this only surfaces failures so the caller can show them instead of leaving
+ * the user stuck on the login screen with no explanation.
+ */
+export const redirectSignInError: Promise<string | null> = getRedirectResult(auth)
+  .then(() => null)
+  .catch((err) => {
+    console.error("Google sign-in redirect failed:", err);
+    const code = (err as { code?: string })?.code ?? "";
+    return REDIRECT_ERROR_MESSAGES[code] ?? "Something went wrong signing you in. Please try again.";
+  });
 
 /**
  * Retries a database call a few times if it fails with PERMISSION_DENIED.
