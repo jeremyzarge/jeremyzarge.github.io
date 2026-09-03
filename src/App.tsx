@@ -318,22 +318,43 @@ export default function App() {
           // Register this device for push notifications (non-blocking)
           initPushNotifications(numericId);
 
-          // Claim a pending meal invite link if one was in the URL
+          // Claim a pending meal invite link if one was in the URL. A malformed
+          // or garbage token (bad paste, corrupted link) shouldn't be able to
+          // take down the rest of sign-in — isolate it and just show an
+          // invite-specific error instead.
           if (pendingInviteToken.current) {
             const token = pendingInviteToken.current;
             pendingInviteToken.current = null;
             sessionStorage.removeItem("_invite_pending");
-            const mealId = await claimMealInvite(token, numericId);
-            if (mealId) await handleInviteNavigation(mealId, numericId);
+            try {
+              const mealId = await claimMealInvite(token, numericId);
+              if (mealId) await handleInviteNavigation(mealId, numericId);
+              else setInviteError("This invite link is no longer valid.");
+            } catch (err) {
+              console.error("Failed to claim meal invite:", err);
+              logClientError("meal_invite_claim_failed", {
+                message: err instanceof Error ? err.message : String(err),
+              });
+              setInviteError("This invite link is no longer valid.");
+            }
           }
 
-          // Claim a pending friend invite link if one was in the URL
+          // Claim a pending friend invite link if one was in the URL — same
+          // isolation as above.
           if (pendingFriendInviteId.current) {
             const inviterId = pendingFriendInviteId.current;
             pendingFriendInviteId.current = null;
             sessionStorage.removeItem("_friend_invite_pending");
-            await claimFriendInvite(inviterId, numericId);
-            setActiveTab("friends");
+            try {
+              await claimFriendInvite(inviterId, numericId);
+              setActiveTab("friends");
+            } catch (err) {
+              console.error("Failed to claim friend invite:", err);
+              logClientError("friend_invite_claim_failed", {
+                message: err instanceof Error ? err.message : String(err),
+              });
+              setInviteError("This invite link is no longer valid.");
+            }
           }
         }
       } catch (err) {
@@ -492,22 +513,40 @@ export default function App() {
       }, "apartment_requests");
     }
 
-    // Claim a pending meal invite link if one was in the URL
+    // Claim a pending meal invite link if one was in the URL. Isolated so a
+    // malformed/garbage token can't leave profile setup stuck mid-save.
     if (pendingInviteToken.current) {
       const token = pendingInviteToken.current;
       pendingInviteToken.current = null;
       sessionStorage.removeItem("_invite_pending");
-      const mealId = await claimMealInvite(token, myId);
-      if (mealId) await handleInviteNavigation(mealId, myId);
+      try {
+        const mealId = await claimMealInvite(token, myId);
+        if (mealId) await handleInviteNavigation(mealId, myId);
+        else setInviteError("This invite link is no longer valid.");
+      } catch (err) {
+        console.error("Failed to claim meal invite:", err);
+        logClientError("meal_invite_claim_failed", {
+          message: err instanceof Error ? err.message : String(err),
+        });
+        setInviteError("This invite link is no longer valid.");
+      }
     }
 
-    // Claim a pending friend invite link if one was in the URL
+    // Claim a pending friend invite link if one was in the URL — same isolation.
     if (pendingFriendInviteId.current) {
       const inviterId = pendingFriendInviteId.current;
       pendingFriendInviteId.current = null;
       sessionStorage.removeItem("_friend_invite_pending");
-      await claimFriendInvite(inviterId, myId);
-      setActiveTab("friends");
+      try {
+        await claimFriendInvite(inviterId, myId);
+        setActiveTab("friends");
+      } catch (err) {
+        console.error("Failed to claim friend invite:", err);
+        logClientError("friend_invite_claim_failed", {
+          message: err instanceof Error ? err.message : String(err),
+        });
+        setInviteError("This invite link is no longer valid.");
+      }
     }
 
     setLoading(false);

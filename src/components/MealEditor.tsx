@@ -1793,6 +1793,13 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                   Invite Link
                 </label>
                 <div
+                  onClick={() => {
+                    navigator.clipboard.writeText(generateMealInviteUrl(mealId)).then(() => {
+                      setCopiedInvite(true);
+                      setTimeout(() => setCopiedInvite(false), 2000);
+                    }).catch(() => {});
+                  }}
+                  title="Click to copy"
                   style={{
                     padding: "12px 16px",
                     borderRadius: 12,
@@ -1802,11 +1809,11 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                     fontSize: "0.9rem",
                     fontFamily: "monospace",
                     color: "#4f46e5",
-                    userSelect: "all",
                     wordBreak: "break-all",
+                    cursor: "pointer",
                   }}
                 >
-                  {generateMealInviteUrl(mealId)}
+                  {copiedInvite ? "✓ Copied!" : generateMealInviteUrl(mealId)}
                 </div>
               </div>
             )}

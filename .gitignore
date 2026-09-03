@@ -2,5 +2,6 @@
 /package-lock.json
 /dist
 cloudflare-worker/.dev.vars
+cloudflare-worker/.wrangler
 /scripts
 /.firebase
