@@ -54,6 +54,8 @@ export type UserProfile = {
   onetable_token?: string;
   onetable_config?: OneTableConfig;
   tracking_preference?: "all" | "untracked_self" | "opted_out";
+  /** Who can see your dinner/lunch status. Defaults to "everyone" when absent. */
+  status_visibility?: "everyone" | "friends" | "no_one";
 };
 
 export type ApartmentInvite = {

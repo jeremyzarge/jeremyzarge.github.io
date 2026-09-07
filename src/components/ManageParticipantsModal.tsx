@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Apartment, Meal, MealParticipant, UserWithId } from "../types";
-import { attemptCloseWithUnsavedChanges } from "../utils";
+import { attemptCloseWithUnsavedChanges, fetchSharedMealPartnerIds } from "../utils";
+import { getFriendSuggestions } from "../friendsService";
 import ClickableUserName from "./ClickableUserName";
 
 interface ManageParticipantsModalProps {
@@ -40,7 +41,22 @@ export default function ManageParticipantsModal({
   const [selectedUserId, setSelectedUserId] = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [suggestionIds, setSuggestionIds] = useState<string[]>([]);
   const comboRef = useRef<HTMLDivElement>(null);
+
+  // Friend suggestions (shared meal partners, their friends, friends of friends) —
+  // shown ahead of typed search results when the invite box is first opened.
+  useEffect(() => {
+    if (!currentUserId) return;
+    let cancelled = false;
+    async function loadSuggestions() {
+      const partnerIds = await fetchSharedMealPartnerIds(currentUserId!);
+      const ids = await getFriendSuggestions(currentUserId!, friendIds || [], partnerIds);
+      if (!cancelled) setSuggestionIds(ids);
+    }
+    loadSuggestions();
+    return () => { cancelled = true; };
+  }, [currentUserId, friendIds]);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -110,14 +126,31 @@ export default function ManageParticipantsModal({
     });
   }, [users, participants, friendSet]);
 
-  const filteredComboUsers = useMemo(() => {
-    if (!userSearch.trim()) return [];
+  const suggestionIdSet = useMemo(() => new Set(suggestionIds), [suggestionIds]);
+
+  // When nothing's typed yet, browse mode shows friends first, then
+  // suggested people (shared meal partners / friends of friends), grouped
+  // with headers below. `friendCount` marks where the "Friends" group ends
+  // and the "Suggested" group begins in that combined list.
+  const { filteredComboUsers, friendCount } = useMemo(() => {
+    if (!userSearch.trim()) {
+      if (!dropdownOpen) return { filteredComboUsers: [] as UserWithId[], friendCount: 0 };
+      const friendsFirst = availableUsers.filter((u) => friendSet.has(u.id));
+      const suggested = availableUsers
+        .filter((u) => !friendSet.has(u.id) && suggestionIdSet.has(u.id))
+        .sort((a, b) => suggestionIds.indexOf(a.id) - suggestionIds.indexOf(b.id));
+      const combined = [...friendsFirst, ...suggested].slice(0, 10);
+      return { filteredComboUsers: combined, friendCount: Math.min(friendsFirst.length, combined.length) };
+    }
     const q = userSearch.toLowerCase();
-    return availableUsers.filter((u) =>
+    const results = availableUsers.filter((u) =>
       `${u.first_name} ${u.last_name}`.toLowerCase().includes(q) ||
       (apartments.find((a) => a.id === u.apartment)?.name || "").toLowerCase().includes(q)
     );
-  }, [availableUsers, userSearch, apartments]);
+    return { filteredComboUsers: results, friendCount: 0 };
+  }, [availableUsers, userSearch, apartments, dropdownOpen, suggestionIds, suggestionIdSet, friendSet]);
+
+  const isBrowsing = !userSearch.trim();
 
   const handleAdd = () => {
     if (!selectedUserId) return;
@@ -247,48 +280,74 @@ export default function ManageParticipantsModal({
                       boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
                     }}
                   >
-                    {filteredComboUsers.map((u) => (
-                      <div
-                        key={u.id}
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          setSelectedUserId(u.id);
-                          setUserSearch(`${u.first_name} ${u.last_name}`);
-                          setDropdownOpen(false);
-                        }}
-                        style={{
-                          padding: "10px 14px",
-                          cursor: "pointer",
-                          fontWeight: 600,
-                          fontSize: "0.9rem",
-                          borderBottom: "1px solid #f3f4f6",
-                          display: "grid",
-                          gridTemplateColumns: "1fr 46px 92px",
-                          columnGap: 8,
-                          alignItems: "start",
-                        }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = "#eff6ff")}
-                        onMouseLeave={(e) => (e.currentTarget.style.background = "white")}
-                      >
-                        <span style={{ minWidth: 0, wordBreak: "break-word" }}>
-                          {u.first_name} {u.last_name}
-                        </span>
-                        <span style={{ fontSize: "0.75rem", color: "#6366f1", fontWeight: 700, whiteSpace: "nowrap" }}>
-                          {friendSet.has(u.id) ? "friend" : ""}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: "0.8rem",
-                            color: "#9ca3af",
-                            textAlign: "right",
-                            minWidth: 0,
-                            wordBreak: "break-word",
-                          }}
-                        >
-                          {apartments.find((a) => a.id === u.apartment)?.name || "No apt"}
-                        </span>
-                      </div>
-                    ))}
+                    {filteredComboUsers.map((u, i) => {
+                      const isFriend = friendSet.has(u.id);
+                      const groupHeader = isBrowsing
+                        ? i === 0 && friendCount > 0
+                          ? "Friends"
+                          : i === friendCount && i < filteredComboUsers.length
+                          ? "Suggested"
+                          : null
+                        : null;
+                      return (
+                        <div key={u.id}>
+                          {groupHeader && (
+                            <div
+                              style={{
+                                padding: "8px 14px 4px",
+                                fontSize: "0.7rem",
+                                fontWeight: 800,
+                                color: "#9ca3af",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.05em",
+                                background: "#f9fafb",
+                              }}
+                            >
+                              {groupHeader}
+                            </div>
+                          )}
+                          <div
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setSelectedUserId(u.id);
+                              setUserSearch(`${u.first_name} ${u.last_name}`);
+                              setDropdownOpen(false);
+                            }}
+                            style={{
+                              padding: "10px 14px",
+                              cursor: "pointer",
+                              fontWeight: 600,
+                              fontSize: "0.9rem",
+                              borderBottom: "1px solid #f3f4f6",
+                              display: "grid",
+                              gridTemplateColumns: "1fr 68px 92px",
+                              columnGap: 8,
+                              alignItems: "start",
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.background = "#eff6ff")}
+                            onMouseLeave={(e) => (e.currentTarget.style.background = "white")}
+                          >
+                            <span style={{ minWidth: 0, wordBreak: "break-word" }}>
+                              {u.first_name} {u.last_name}
+                            </span>
+                            <span style={{ fontSize: "0.75rem", color: "#6366f1", fontWeight: 700, whiteSpace: "nowrap" }}>
+                              {isFriend ? "friend" : isBrowsing && suggestionIdSet.has(u.id) ? "suggested" : ""}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: "0.8rem",
+                                color: "#9ca3af",
+                                textAlign: "right",
+                                minWidth: 0,
+                                wordBreak: "break-word",
+                              }}
+                            >
+                              {apartments.find((a) => a.id === u.apartment)?.name || "No apt"}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

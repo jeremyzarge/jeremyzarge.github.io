@@ -94,10 +94,14 @@ export default function MealList({
               )}
               {weekStatus && (
                 <td style={{ padding: 12, textAlign: "center" }}>
-                  <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
-                    <WeekStatusDot busy={weekStatus[u.id]?.dinnerBusy ?? false} label="Dinner" />
-                    <WeekStatusDot busy={weekStatus[u.id]?.lunchBusy ?? false} label="Lunch" />
-                  </div>
+                  {weekStatus[u.id] ? (
+                    <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
+                      <WeekStatusDot busy={weekStatus[u.id].dinnerBusy} label="Dinner" />
+                      <WeekStatusDot busy={weekStatus[u.id].lunchBusy} label="Lunch" />
+                    </div>
+                  ) : (
+                    <span style={{ color: "#d1d5db" }} title="This person has restricted who can see their status">—</span>
+                  )}
                 </td>
               )}
             </tr>

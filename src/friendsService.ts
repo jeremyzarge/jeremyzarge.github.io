@@ -143,3 +143,40 @@ export function getSentRequestIds(relationships: Record<string, UserRelationship
     .filter(([, r]) => r.status === "request_sent")
     .map(([id]) => id);
 }
+
+/**
+ * Suggests people to friend: non-friends the user has shared a meal with
+ * (ranked first), then friends of those meal partners and friends of the
+ * user's existing friends. Excludes the user themself and existing friends.
+ */
+export async function getFriendSuggestions(
+  currentUserId: string,
+  friendIds: string[],
+  sharedMealPartnerIds: string[]
+): Promise<string[]> {
+  const suggestions: string[] = [];
+  const seen = new Set<string>([currentUserId, ...friendIds]);
+  const nonFriendPartners = sharedMealPartnerIds.filter((id) => !seen.has(id));
+
+  for (const id of nonFriendPartners) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    suggestions.push(id);
+  }
+
+  const seedIds = [...nonFriendPartners, ...friendIds];
+  const seedRelSnaps = await Promise.all(
+    seedIds.map((id) => get(ref(rtdb, `user_relationships/${id}`)))
+  );
+  for (const snap of seedRelSnaps) {
+    if (!snap.exists()) continue;
+    const rels = snap.val() as Record<string, UserRelationship>;
+    for (const [id, r] of Object.entries(rels)) {
+      if (r.status !== "friend" || seen.has(id)) continue;
+      seen.add(id);
+      suggestions.push(id);
+    }
+  }
+
+  return suggestions;
+}

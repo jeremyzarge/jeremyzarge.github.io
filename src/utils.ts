@@ -358,6 +358,39 @@ export function buildCalendarLinks(meal: {
 }
 
 /**
+ * Whether a viewer can see a user's dinner/lunch status, based on that user's
+ * own status_visibility preference (defaults to "everyone" when unset).
+ */
+export function canViewStatus(
+  visibility: UserProfile["status_visibility"] | undefined,
+  viewerIsFriend: boolean
+): boolean {
+  const pref = visibility ?? "everyone";
+  if (pref === "no_one") return false;
+  if (pref === "friends") return viewerIsFriend;
+  return true;
+}
+
+/**
+ * All user IDs the given user has shared an accepted meal with (host or
+ * guest, past or upcoming). Used to seed friend suggestions.
+ */
+export async function fetchSharedMealPartnerIds(userId: string): Promise<string[]> {
+  const snap = await get(ref(rtdb, "meal_events"));
+  if (!snap.exists()) return [];
+  const partnerIds = new Set<string>();
+  for (const meal of Object.values(snap.val()) as any[]) {
+    const participants = meal.participants || {};
+    if (participants[userId]?.accepted !== true) continue;
+    for (const [otherId, p] of Object.entries(participants) as any[]) {
+      if (otherId === userId || p.accepted !== true) continue;
+      partnerIds.add(otherId);
+    }
+  }
+  return Array.from(partnerIds);
+}
+
+/**
  * Gets all allergens from a list of user IDs
  * @param userIds - Array of user numeric IDs
  * @param allUsers - Array of all users

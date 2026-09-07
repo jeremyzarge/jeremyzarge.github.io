@@ -94,7 +94,7 @@ export default function App() {
   const [authInitialized, setAuthInitialized] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [inviteLinkCopied, setInviteLinkCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<"ledger" | "past" | "upcoming" | "friends" | "profile">("ledger");
+  const [activeTab, setActiveTab] = useState<"ledger" | "past" | "upcoming" | "friends" | "profile">("upcoming");
   const [showCreate, setShowCreate] = useState(false);
   const [showProfileEditor, setShowProfileEditor] = useState(false);
 
@@ -164,18 +164,43 @@ export default function App() {
   const [relationships, setRelationships] = useState<Record<string, UserRelationship>>({});
   const friendIds = useMemo(() => getFriendIds(relationships), [relationships]);
 
-  /** Navigate to the right screen based on notification data */
-  function handleNotifNavigation(data: Record<string, string>) {
-    const tab = data.tab as typeof activeTab | undefined;
-    if (tab) setActiveTab(tab);
-    if (data.aptId) setViewingApartmentId(data.aptId);
+  /**
+   * Navigate to the right screen based on notification data. For meal
+   * notifications, the actual meal is looked up so the tab (upcoming vs
+   * past) reflects reality rather than whatever the sender guessed — a
+   * meal can still receive messages after it's happened, so a hardcoded
+   * "upcoming" tag on that notification would land on the wrong tab.
+   */
+  async function handleNotifNavigation(data: Record<string, string>) {
     if (data.mealId) {
-      if (data.invited === "true") {
-        setViewingInvitedMealId(data.mealId);
-      } else {
-        setViewingMealId(data.mealId);
+      let isPast = false;
+      let mealExists = true;
+      try {
+        const snap = await get(ref(rtdb, `meal_events/${data.mealId}`));
+        mealExists = snap.exists();
+        if (mealExists) {
+          const meal = snap.val();
+          isPast = !!meal.datetime && new Date(meal.datetime) < new Date();
+        }
+      } catch {
+        // Fall back to the sender-provided tab below if the lookup fails.
       }
+      if (mealExists) {
+        setActiveTab(isPast ? "past" : "upcoming");
+        if (data.invited === "true" && !isPast) {
+          setViewingInvitedMealId(data.mealId);
+        } else {
+          setViewingMealId(data.mealId);
+        }
+      } else {
+        const tab = data.tab as typeof activeTab | undefined;
+        if (tab) setActiveTab(tab);
+      }
+    } else {
+      const tab = data.tab as typeof activeTab | undefined;
+      if (tab) setActiveTab(tab);
     }
+    if (data.aptId) setViewingApartmentId(data.aptId);
     if (data.userId) setViewingProfileUserId(data.userId);
   }
 
@@ -838,7 +863,7 @@ export default function App() {
               fontFamily: "Inter, sans-serif",
             }}
           >
-            📲 Add ViteMeals to your Home Screen — tap for instructions
+            📲 Add ViteMeals to your Home Screen to get meal notifications — tap for instructions
           </button>
           <button
             type="button"
@@ -867,7 +892,7 @@ export default function App() {
           Welcome back, {displayName}!
         </h1>
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-          <HeaderPillButton variant="primary" onClick={() => setShowProfileEditor(true)}>
+          <HeaderPillButton onClick={() => setShowProfileEditor(true)}>
             ✏️ Edit Profile
           </HeaderPillButton>
           <HeaderPillButton onClick={() => setShowNotifPrefs(true)}>
@@ -1148,6 +1173,9 @@ export default function App() {
                   flexDirection: "column",
                   gap: 16,
                 }}>
+                  <p style={{ margin: 0, fontSize: "0.85rem", color: "#374151", fontWeight: 600 }}>
+                    Installing ViteMeals lets you get push notifications for meal invites, messages, and friend requests.
+                  </p>
                   <div>
                     <div style={{ fontWeight: 800, fontSize: "0.85rem", color: "#9a3412", marginBottom: 8 }}>iPhone / iPad — Safari</div>
                     <ol style={{ margin: 0, paddingLeft: 20, color: "#374151", fontSize: "0.88rem", lineHeight: 1.8 }}>

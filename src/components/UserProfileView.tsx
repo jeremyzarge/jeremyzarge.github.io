@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { notifyUsers } from "../notifications";
 import { ref, get } from "firebase/database";
 import { rtdb } from "../firebaseClient";
-import { fetchAllApartments } from "../utils";
+import { fetchAllApartments, canViewStatus } from "../utils";
 import {
   sendFriendRequest,
   acceptFriendRequest,
@@ -197,6 +197,8 @@ export default function UserProfileView({
     ? (lunchOverride === "busy" ? true : lunchOverride === "free" ? false : friendAttendsLunch)
     : (user.lunch_status === "busy" ? true : user.lunch_status === "free" ? false : friendAttendsLunch);
 
+  const statusVisible = userId === currentUserId || canViewStatus(user.status_visibility, status === "friend");
+
   return (
     <div
       className="modal-overlay"
@@ -279,8 +281,8 @@ export default function UserProfileView({
           </button>
         </div>
 
-        {/* Shabbat meal status */}
-        {(userId === currentUserId || canSeeDetails) && (
+        {/* Shabbat meal status — gated by the user's own status_visibility preference */}
+        {statusVisible && (
           <div style={{ display: "flex", gap: 20, justifyContent: "center", marginTop: 4 }}>
             <MealStatusIcon icon="🍽️" label="Dinner" attending={effectiveDinner} />
             <MealStatusIcon icon="🥗" label="Lunch" attending={effectiveLunch} />

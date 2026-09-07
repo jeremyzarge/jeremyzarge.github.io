@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { notifyUsers } from "../notifications";
 import { generateFriendInviteUrl } from "../inviteService";
 import {
@@ -9,7 +9,9 @@ import {
   getIncomingRequestIds,
   getSentRequestIds,
   getMutualFriendIds,
+  getFriendSuggestions,
 } from "../friendsService";
+import { fetchSharedMealPartnerIds } from "../utils";
 import ClickableUserName from "./ClickableUserName";
 import type { UserWithId, UserRelationship } from "../types";
 
@@ -43,6 +45,9 @@ export default function FriendsTab({
   const [activeSubTab, setActiveSubTab] = useState<SubTab>("friends");
   const [searchQuery, setSearchQuery] = useState("");
   const [copied, setCopied] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [suggestionIds, setSuggestionIds] = useState<string[]>([]);
+  const searchBoxRef = useRef<HTMLDivElement>(null);
 
   const friendIds = useMemo(() => getFriendIds(relationships), [relationships]);
   const incomingIds = useMemo(() => getIncomingRequestIds(relationships), [relationships]);
@@ -53,6 +58,39 @@ export default function FriendsTab({
     for (const u of allUsers) map[u.id] = u;
     return map;
   }, [allUsers]);
+
+  // Close the suggestions dropdown when clicking outside the search box
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) {
+        setSearchOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  // Friend suggestions: non-friends we've shared a meal with, their friends,
+  // and friends of our existing friends.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSuggestions() {
+      const partnerIds = await fetchSharedMealPartnerIds(currentUserId);
+      const ids = await getFriendSuggestions(currentUserId, friendIds, partnerIds);
+      if (!cancelled) setSuggestionIds(ids);
+    }
+    loadSuggestions();
+    return () => { cancelled = true; };
+  }, [currentUserId, friendIds]);
+
+  const suggestedUsers = useMemo(
+    () =>
+      suggestionIds
+        .map((id) => userMap[id])
+        .filter((u): u is UserWithId => !!u && !!u.first_name && !u.placeholder)
+        .slice(0, 10),
+    [suggestionIds, userMap]
+  );
 
   // Search: filter all non-self, non-placeholder users
   const searchResults = useMemo(() => {
@@ -81,12 +119,13 @@ export default function FriendsTab({
         Friends
       </h2>
       {/* Search Bar + Invite Button */}
-      <div style={{ marginBottom: 20, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+      <div ref={searchBoxRef} style={{ marginBottom: 20, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
         <input
           type="text"
           placeholder="Search for people..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
+          onFocus={() => setSearchOpen(true)}
           style={{
             width: "100%",
             maxWidth: 500,
@@ -129,12 +168,15 @@ export default function FriendsTab({
         >
           {copied ? "Link copied!" : "Invite a friend"}
         </button>
-      </div>
 
-      {/* Search Results */}
-      {searchQuery.trim() && (
+      {/* Search Results / Suggestions — kept inside the same ref'd container as the
+          search box so clicking a row doesn't register as an "outside click" and
+          close the dropdown before its onClick fires. */}
+      {searchQuery.trim() ? (
         <div
           style={{
+            width: "100%",
+            boxSizing: "border-box",
             marginBottom: 24,
             background: "white",
             borderRadius: 16,
@@ -168,7 +210,40 @@ export default function FriendsTab({
             </div>
           )}
         </div>
-      )}
+      ) : searchOpen && suggestedUsers.length > 0 ? (
+        <div
+          style={{
+            width: "100%",
+            boxSizing: "border-box",
+            marginBottom: 24,
+            background: "white",
+            borderRadius: 16,
+            padding: 16,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+          }}
+        >
+          <h3 style={{ margin: "0 0 12px", fontWeight: 800, color: "#374151", fontSize: "1rem" }}>
+            Suggestions
+          </h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {suggestedUsers.map((u) => (
+              <UserRow
+                key={u.id}
+                user={u}
+                onViewProfile={onViewProfile}
+                badge={
+                  relationships[u.id]?.status === "request_sent"
+                    ? "Request Sent"
+                    : relationships[u.id]?.status === "request_received"
+                    ? "Incoming Request"
+                    : undefined
+                }
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+      </div>
 
       {/* Sub-Tabs */}
       <div

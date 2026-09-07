@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ref, get } from "firebase/database";
 import { rtdb } from "../firebaseClient";
-import { fetchAllUsers, fetchAllApartments, getUpcomingShabbatWindows } from "../utils";
+import { fetchAllUsers, fetchAllApartments, getUpcomingShabbatWindows, canViewStatus } from "../utils";
 import type { Apartment, UserWithId, ApartmentWithData } from "../types";
 import MealList from "./MealList";
 
@@ -102,6 +102,9 @@ export default function MealLedger({ currentUserId, friendIds, onViewProfile, on
       const allMeals = mealsSnap.exists() ? (mealsSnap.val() as Record<string, any>) : {};
       const status: Record<string, { dinnerBusy: boolean; lunchBusy: boolean }> = {};
       for (const user of otherUsers) {
+        // Don't compute (or leak, via timing) status for someone who's restricted it from us.
+        if (!canViewStatus(user.status_visibility, friendSet.has(user.id))) continue;
+
         let attendsDinner = false;
         let attendsLunch = false;
         for (const meal of Object.values(allMeals)) {

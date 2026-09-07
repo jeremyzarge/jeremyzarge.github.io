@@ -6,8 +6,12 @@ import type { UserProfile } from "../types";
 interface TrackingPrefsModalProps {
   userId: string;
   currentPreference: UserProfile["tracking_preference"];
+  currentStatusVisibility: UserProfile["status_visibility"];
   onClose: () => void;
-  onSaved: (preference: NonNullable<UserProfile["tracking_preference"]>) => void;
+  onSaved: (values: {
+    tracking_preference: NonNullable<UserProfile["tracking_preference"]>;
+    status_visibility: NonNullable<UserProfile["status_visibility"]>;
+  }) => void;
 }
 
 const OPTIONS: { key: NonNullable<UserProfile["tracking_preference"]>; label: string; description: string }[] = [
@@ -28,15 +32,37 @@ const OPTIONS: { key: NonNullable<UserProfile["tracking_preference"]>; label: st
   },
 ];
 
-export default function TrackingPrefsModal({ userId, currentPreference, onClose, onSaved }: TrackingPrefsModalProps) {
+const STATUS_OPTIONS: { key: NonNullable<UserProfile["status_visibility"]>; label: string; description: string }[] = [
+  {
+    key: "everyone",
+    label: "Everyone",
+    description: "The default — anyone can see whether you're free or busy for this week's meals.",
+  },
+  {
+    key: "friends",
+    label: "Friends Only",
+    description: "Only your friends can see your status. Everyone else sees a blank in the meal ledger.",
+  },
+  {
+    key: "no_one",
+    label: "No One",
+    description: "Your status is hidden from everyone, including friends.",
+  },
+];
+
+export default function TrackingPrefsModal({ userId, currentPreference, currentStatusVisibility, onClose, onSaved }: TrackingPrefsModalProps) {
   const [selected, setSelected] = useState<NonNullable<UserProfile["tracking_preference"]>>(currentPreference ?? "all");
+  const [selectedStatus, setSelectedStatus] = useState<NonNullable<UserProfile["status_visibility"]>>(currentStatusVisibility ?? "everyone");
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await set(ref(rtdb, `users/${userId}/tracking_preference`), selected);
-      onSaved(selected);
+      await Promise.all([
+        set(ref(rtdb, `users/${userId}/tracking_preference`), selected),
+        set(ref(rtdb, `users/${userId}/status_visibility`), selectedStatus),
+      ]);
+      onSaved({ tracking_preference: selected, status_visibility: selectedStatus });
     } finally {
       setSaving(false);
     }
@@ -90,13 +116,14 @@ export default function TrackingPrefsModal({ userId, currentPreference, onClose,
             backgroundClip: "text",
           }}
         >
-          Meal Tracking
+          Meal &amp; Status Tracking
         </h3>
         <p style={{ margin: "0 0 20px", color: "#6b7280", fontSize: "0.9rem" }}>
-          Choose how meal counts work for you.
+          Choose how meal counts and your weekly status work for you.
         </p>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <h4 style={{ margin: "0 0 10px", fontWeight: 800, fontSize: "0.95rem", color: "#374151" }}>Meal Tracking</h4>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
           {OPTIONS.map(({ key, label, description }) => (
             <button
               key={key}
@@ -129,6 +156,51 @@ export default function TrackingPrefsModal({ userId, currentPreference, onClose,
                 }}
               >
                 {selected === key && (
+                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#667eea" }} />
+                )}
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: "0.95rem", color: "#374151" }}>{label}</div>
+                <div style={{ fontSize: "0.8rem", color: "#9ca3af", marginTop: 2 }}>{description}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <h4 style={{ margin: "0 0 10px", fontWeight: 800, fontSize: "0.95rem", color: "#374151" }}>Status Visibility</h4>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {STATUS_OPTIONS.map(({ key, label, description }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setSelectedStatus(key)}
+              style={{
+                textAlign: "left",
+                display: "flex",
+                gap: 12,
+                padding: "14px 16px",
+                borderRadius: 12,
+                background: selectedStatus === key ? "#f0f9ff" : "#f9fafb",
+                border: `2px solid ${selectedStatus === key ? "#667eea" : "#e5e7eb"}`,
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+                fontFamily: "Inter, sans-serif",
+              }}
+            >
+              <div
+                style={{
+                  width: 20,
+                  height: 20,
+                  borderRadius: "50%",
+                  border: `2px solid ${selectedStatus === key ? "#667eea" : "#d1d5db"}`,
+                  flexShrink: 0,
+                  marginTop: 2,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                {selectedStatus === key && (
                   <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#667eea" }} />
                 )}
               </div>

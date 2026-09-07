@@ -64,6 +64,7 @@ export default function ProfileEditor({
   const [otToken, setOtToken] = useState(currentProfile.onetable_token || "");
   const [otDisconnecting, setOtDisconnecting] = useState(false);
   const [trackingPreference, setTrackingPreference] = useState(currentProfile.tracking_preference ?? "all");
+  const [statusVisibility, setStatusVisibility] = useState(currentProfile.status_visibility ?? "everyone");
   const [showTrackingPrefs, setShowTrackingPrefs] = useState(false);
 
   // Always load fresh OT token on mount — the profile prop may be stale
@@ -848,8 +849,8 @@ export default function ProfileEditor({
           </button>
         </div>
 
-        {/* ── Meal Tracking ── */}
-        <SectionTitle text="Meal Tracking" />
+        {/* ── Meal & Status Tracking ── */}
+        <SectionTitle text="Meal & Status Tracking" />
         <div
           style={{
             padding: 16,
@@ -863,10 +864,21 @@ export default function ProfileEditor({
             flexWrap: "wrap",
           }}
         >
-          <div style={{ color: "#374151", fontSize: "0.9rem", fontWeight: 600 }}>
-            {trackingPreference === "all" && "Full Tracking"}
-            {trackingPreference === "untracked_self" && "External Tracking"}
-            {trackingPreference === "opted_out" && "No Tracking"}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div style={{ fontSize: "0.9rem" }}>
+              <span style={{ fontWeight: 800, color: "#667eea" }}>Meal Tracking:</span>{" "}
+              <span style={{ fontWeight: 600, color: "#374151" }}>
+                {trackingPreference === "all" && "Full Tracking"}
+                {trackingPreference === "untracked_self" && "External Tracking"}
+                {trackingPreference === "opted_out" && "No Tracking"}
+              </span>
+            </div>
+            <div style={{ fontSize: "0.9rem" }}>
+              <span style={{ fontWeight: 800, color: "#667eea" }}>Status Visibility:</span>{" "}
+              <span style={{ fontWeight: 600, color: "#374151" }}>
+                {statusVisibility === "friends" ? "Friends Only" : statusVisibility === "no_one" ? "No One" : "Everyone"}
+              </span>
+            </div>
           </div>
           <button
             type="button"
@@ -1048,9 +1060,11 @@ export default function ProfileEditor({
       <TrackingPrefsModal
         userId={userId}
         currentPreference={trackingPreference}
+        currentStatusVisibility={statusVisibility}
         onClose={() => setShowTrackingPrefs(false)}
-        onSaved={(preference) => {
-          setTrackingPreference(preference);
+        onSaved={({ tracking_preference, status_visibility }) => {
+          setTrackingPreference(tracking_preference);
+          setStatusVisibility(status_visibility);
           setShowTrackingPrefs(false);
           onProfileChanged?.();
         }}
