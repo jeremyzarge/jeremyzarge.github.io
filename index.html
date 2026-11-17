@@ -1,29 +1,52 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>ViteMeals</title>
-    <meta name="description" content="Coordinate potluck meals with friends" />
-    <meta name="theme-color" content="#667eea" />
-    <link rel="icon" href="/favicon.ico" sizes="any" />
-    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png" />
-    <link rel="manifest" href="/manifest.json" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="ViteMeals" />
-    <script type="module" crossorigin src="/assets/index-74d2b0b9.js"></script>
-    <link rel="stylesheet" href="/assets/index-ee7d4a52.css">
-  </head>
-  <body>
-    <div id="root"></div>
-    
-    <script>
-      if ("serviceWorker" in navigator) {
-        window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js"));
-      }
-    </script>
-  </body>
-</html>
+<head>
+  <!-- Replaced by `flutter build web --base-href`; "/" for vitemeals.com. -->
+  <base href="/">
 
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>ViteMeals</title>
+  <meta name="description" content="Coordinate potluck meals with friends">
+  <meta name="theme-color" content="#667eea">
+
+  <link rel="icon" href="favicon.ico" sizes="any">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="apple-touch-icon-180x180.png">
+  <link rel="manifest" href="manifest.json">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="ViteMeals">
+
+  <style>
+    /* Same gradient as the app, so there's no white flash while Flutter loads. */
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%) fixed;
+    }
+    #vm-loading {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    }
+    #vm-loading div {
+      width: 36px; height: 36px; border-radius: 50%;
+      border: 3px solid rgba(255, 255, 255, 0.3); border-top-color: white;
+      animation: vm-spin 0.8s linear infinite;
+    }
+    @keyframes vm-spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="vm-loading"><div></div></div>
+  <script>
+    // Web Push + offline fallback (same worker the React site used).
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js"));
+    }
+    // Remove the spinner once Flutter has drawn its first frame.
+    window.addEventListener("flutter-first-frame", () => document.getElementById("vm-loading")?.remove());
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
