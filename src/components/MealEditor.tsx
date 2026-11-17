@@ -497,46 +497,43 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     return !!meal?.food_requests_enforced && (meal?.food_requests?.length ?? 0) > 0;
   }, [meal?.food_requests, meal?.food_requests_enforced]);
 
-  // Tally of current food selections per food key, so we know how much of each
-  // requested item's quantity is already spoken for.
-  const foodConsumption = useMemo(() => {
-    const counts: Record<string, Record<string, number>> = {};
-    if (!meal) return counts;
-    for (const [userId, p] of Object.entries(meal.participants)) {
-      const claims: string[] = [p.food, ...(p.additional_items ?? []).map((it) => it.food)];
-      for (const food of claims) {
-        if (food === "none" || food === "other") continue;
-        counts[food] ??= {};
-        counts[food][userId] = (counts[food][userId] ?? 0) + 1;
-      }
+  /**
+   * How many picks of `food` exist across all participants (main picks + extra items),
+   * not counting one specific slot — the row being edited (`extraIndex` null = main pick).
+   * Excluding only that row (not the person's whole set of picks) is what stops someone
+   * from taking the last of an item a second time in another of their own rows.
+   */
+  const foodCountExceptSlot = useCallback((food: string, userId: string, extraIndex: number | null): number => {
+    if (!meal) return 0;
+    let count = 0;
+    for (const [uid, p] of Object.entries(meal.participants)) {
+      if (p.food === food && !(uid === userId && extraIndex === null)) count++;
+      (p.additional_items ?? []).forEach((it, i) => {
+        if (it.food === food && !(uid === userId && extraIndex === i)) count++;
+      });
     }
-    return counts;
+    return count;
   }, [meal]);
 
-  const foodConsumptionCount = useCallback((food: string, excludeUserId: string): number => {
-    const perUser = foodConsumption[food] ?? {};
-    return Object.entries(perUser).reduce((s, [uid, c]) => (uid === excludeUserId ? s : s + c), 0);
-  }, [foodConsumption]);
-
   /**
-   * The list of food keys a participant may currently pick from, when food requests are
+   * The list of food keys one row may currently pick from, when food requests are
    * enforced: any requested item with remaining quantity > 0, plus "none".
    * Only meaningful when `foodRequestsEnforced` is true.
    */
-  const getAllowedFoodsForParticipant = useCallback((userId: string): string[] => {
+  const getAllowedFoodsForParticipant = useCallback((userId: string, extraIndex: number | null = null): string[] => {
     if (!meal) return ["none"];
     const items = meal.food_requests ?? [];
     const allowed = new Set<string>(["none"]);
     for (const item of items) {
-      const remaining = item.quantity - foodConsumptionCount(item.food, userId);
+      const remaining = item.quantity - foodCountExceptSlot(item.food, userId, extraIndex);
       if (remaining > 0) allowed.add(item.food);
     }
     return Array.from(allowed);
-  }, [meal, foodConsumptionCount]);
+  }, [meal, foodCountExceptSlot]);
 
   /** Whether a participant currently has any real (non-"none") food option — if not, "Other" opens up as a fallback. */
-  const hasRealFoodOptions = useCallback((userId: string): boolean => {
-    return getAllowedFoodsForParticipant(userId).some((f) => f !== "none");
+  const hasRealFoodOptions = useCallback((userId: string, extraIndex: number | null = null): boolean => {
+    return getAllowedFoodsForParticipant(userId, extraIndex).some((f) => f !== "none");
   }, [getAllowedFoodsForParticipant]);
 
   /**
@@ -691,8 +688,8 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
     if (!isHost && userId !== currentUserNumericId) return;
     if (foodRequestsEnforced && food !== "none") {
       if (food === "other") {
-        if (hasRealFoodOptions(userId)) return;
-      } else if (!getAllowedFoodsForParticipant(userId).includes(food)) {
+        if (hasRealFoodOptions(userId, index)) return;
+      } else if (!getAllowedFoodsForParticipant(userId, index).includes(food)) {
         return;
       }
     }
@@ -2100,8 +2097,9 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                         </tr>
                         {(participant.additional_items || []).map((item, idx) => {
                           const canEditItem = !isPastMeal && (isHost || userId === currentUserNumericId) && !invitedMode;
-                          const itemSelectValue = knownFoods.includes(item.food) ? item.food : "__other__";
-                          const itemShowOther = !foodRequestsEnforced || hasRealFoodOptions(userId) === false;
+                          const itemFoods = foodRequestsEnforced ? getAllowedFoodsForParticipant(userId, idx) : knownFoods;
+                          const itemSelectValue = itemFoods.includes(item.food) ? item.food : "__other__";
+                          const itemShowOther = !foodRequestsEnforced || hasRealFoodOptions(userId, idx) === false;
                           return (
                             <tr
                               key={`${userId}-extra-${idx}`}
@@ -2128,7 +2126,7 @@ export default function MealEditor({ mealId, onClose, onCreated, authUser: _auth
                                     fontFamily: "Inter, sans-serif",
                                   }}
                                 >
-                                  {knownFoods.map((f) => (
+                                  {itemFoods.map((f) => (
                                     <option key={f} value={f}>{formatFood(f)}</option>
                                   ))}
                                   {itemShowOther && <option value="__other__">✏️ Other</option>}

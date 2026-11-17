@@ -140,14 +140,26 @@ export async function notifyUsers(
 
     if (filteredIds.length === 0) return;
 
+    // Web Push subscriptions (this site) plus FCM device tokens (the mobile app).
     const subscriptions: unknown[] = [];
+    // Grouped per user so the Worker can set each person's app-icon badge count.
+    const fcmRecipients: { userId: string; tokens: string[] }[] = [];
     await Promise.all(
       filteredIds.map(async (uid) => {
-        const snap = await get(ref(rtdb, `users/${uid}/push_subscriptions`));
-        if (snap.exists()) Object.values(snap.val()).forEach((s) => subscriptions.push(s));
+        const [subsSnap, fcmSnap] = await Promise.all([
+          get(ref(rtdb, `users/${uid}/push_subscriptions`)),
+          get(ref(rtdb, `users/${uid}/fcm_tokens`)),
+        ]);
+        if (subsSnap.exists()) Object.values(subsSnap.val()).forEach((s) => subscriptions.push(s));
+        if (fcmSnap.exists()) {
+          const tokens = Object.values(fcmSnap.val() as Record<string, { token?: string }>)
+            .map((t) => t?.token)
+            .filter((t): t is string => !!t);
+          if (tokens.length) fcmRecipients.push({ userId: uid, tokens });
+        }
       })
     );
-    if (subscriptions.length === 0) return;
+    if (subscriptions.length === 0 && fcmRecipients.length === 0) return;
 
     await fetch(WORKER_URL, {
       method: "POST",
@@ -155,7 +167,7 @@ export async function notifyUsers(
         "Content-Type": "application/json",
         "X-Notification-Secret": NOTIFICATION_SECRET,
       },
-      body: JSON.stringify({ subscriptions, notification }),
+      body: JSON.stringify({ subscriptions, fcmRecipients, notification }),
     });
   } catch (err) {
     console.warn("[push] notifyUsers failed:", err);

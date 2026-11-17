@@ -129,30 +129,26 @@ export default function FoodRequestsModal({ mealId, meal, foods, onClose }: Food
       // configured yet (cleanItems is empty), there's nothing to enforce against — don't
       // wipe every guest's selection just because the checkbox is checked.
       if (enforced && cleanItems.length > 0) {
-        const stillAvailableFor = (food: string, forUserId: string): boolean => {
+        // Keep picks first-come (each person's main pick, then their extras) until a
+        // food's quantity is used up; reset anything beyond that so it's re-chosen.
+        const used: Record<string, number> = {};
+        const keep = (food: string): boolean => {
+          if (food === "none" || food === "other") return true;
           const item = cleanItems.find((it) => it.food === food);
-          if (!item) return false;
-          let others = 0;
-          for (const [uid, p] of Object.entries(meal.participants)) {
-            if (uid === forUserId) continue;
-            const claims = [p.food, ...(p.additional_items ?? []).map((it) => it.food)];
-            others += claims.filter((f) => f === food).length;
-          }
-          return item.quantity - others > 0;
+          if (!item || (used[food] ?? 0) >= item.quantity) return false;
+          used[food] = (used[food] ?? 0) + 1;
+          return true;
         };
         for (const [uid, p] of Object.entries(meal.participants)) {
-          if (p.food !== "none" && p.food !== "other" && !stillAvailableFor(p.food, uid)) {
+          if (!keep(p.food)) {
             updates[`meal_events/${mealId}/participants/${uid}/food`] = "none";
           }
-          const keptItems = (p.additional_items ?? []).filter(
-            (it) => it.food === "none" || it.food === "other" || stillAvailableFor(it.food, uid)
-          );
+          const keptItems = (p.additional_items ?? []).filter((it) => keep(it.food));
           if (keptItems.length !== (p.additional_items ?? []).length) {
             updates[`meal_events/${mealId}/participants/${uid}/additional_items`] = keptItems;
           }
         }
       }
-
       await update(ref(rtdb), updates);
       onClose();
     } catch (err) {

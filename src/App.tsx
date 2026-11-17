@@ -36,6 +36,9 @@ import WeeklyStatusPrompt from "./components/WeeklyStatusPrompt";
 
 const { auth } = firebaseClient;
 
+/** App Store / TestFlight link for the native app. Leave empty to hide the download prompts. */
+const APP_DOWNLOAD_URL = "";
+
 interface ProfileData {
   first_name: string;
   last_name: string;
@@ -144,12 +147,12 @@ export default function App() {
   const [showNotifPrefs, setShowNotifPrefs] = useState(false);
   const [showDataSecurity, setShowDataSecurity] = useState(false);
   const [showAdminStats, setShowAdminStats] = useState(false);
-  const [showPWAInstructions, setShowPWAInstructions] = useState(false);
-  const [pwaBannerDismissed, setPwaBannerDismissed] = useState(
-    () => localStorage.getItem("pwa_banner_dismissed") === "1"
+  const [appBannerDismissed, setAppBannerDismissed] = useState(
+    () => localStorage.getItem("app_banner_dismissed") === "1"
   );
-  const isMobilePWACandidate =
-    window.innerWidth <= 768 && !window.matchMedia("(display-mode: standalone)").matches;
+  // Phones get a nudge to install the native app (replaces the old
+  // "Add to Home Screen" PWA banner). Hidden until there's a link to send people to.
+  const showAppDownload = window.innerWidth <= 768 && !!APP_DOWNLOAD_URL;
   const [showWeeklyStatusPrompt, setShowWeeklyStatusPrompt] = useState(false);
   const isAdmin = authUser?.email === "jeremyzarge@gmail.com";
 
@@ -824,10 +827,9 @@ export default function App() {
   return (
     <div className="has-bottom-nav" style={{ width: "100%", maxWidth: 1200, margin: "0 auto" }}>
 
-      {/* Mobile-only banner nudging people to add the app to their home screen.
-          The CSS breakpoint (not just the JS width check) is what actually keeps
-          this off desktop — same convention as .mobile-hidden elsewhere. */}
-      {isMobilePWACandidate && !pwaBannerDismissed && (
+      {/* Mobile-only banner pointing people to the native app. The CSS breakpoint
+          (not just the JS width check) keeps this off desktop. */}
+      {showAppDownload && !appBannerDismissed && (
         <div
           className="pwa-banner mobile-only"
           style={{
@@ -841,33 +843,25 @@ export default function App() {
             boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
           }}
         >
-          <button
-            type="button"
-            onClick={() => {
-              localStorage.setItem("pwa_banner_dismissed", "1");
-              setPwaBannerDismissed(true);
-              setActiveTab("profile");
-              setShowPWAInstructions(true);
-            }}
+          <a
+            href={APP_DOWNLOAD_URL}
+            target="_blank"
+            rel="noopener noreferrer"
             style={{
               flex: 1,
               minWidth: 0,
-              background: "none",
-              border: "none",
               color: "white",
               fontWeight: 700,
               fontSize: "0.85rem",
-              textAlign: "left",
-              cursor: "pointer",
-              padding: 0,
+              textDecoration: "none",
               fontFamily: "Inter, sans-serif",
             }}
           >
-            📲 Add ViteMeals to your Home Screen to get meal notifications — tap for instructions
-          </button>
+            📲 Get the ViteMeals app for meal notifications — tap to download
+          </a>
           <button
             type="button"
-            onClick={() => { localStorage.setItem("pwa_banner_dismissed", "1"); setPwaBannerDismissed(true); }}
+            onClick={() => { localStorage.setItem("app_banner_dismissed", "1"); setAppBannerDismissed(true); }}
             aria-label="Dismiss"
             style={{
               flexShrink: 0,
@@ -1136,65 +1130,30 @@ export default function App() {
               📊 Admin Stats
             </button>
           )}
-          {/* PWA install prompt — mobile only, not already installed */}
-          {window.innerWidth <= 768 && !window.matchMedia("(display-mode: standalone)").matches && (
-            <div style={{ width: "100%", maxWidth: 280 }}>
-              <button
-                onClick={() => setShowPWAInstructions((v) => !v)}
-                style={{
-                  width: "100%",
-                  padding: "14px 32px",
-                  borderRadius: 50,
-                  border: "none",
-                  background: "white",
-                  color: "#f97316",
-                  fontWeight: 700,
-                  fontFamily: "Inter, sans-serif",
-                  fontSize: "1rem",
-                  cursor: "pointer",
-                  boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 8,
-                }}
-              >
-                📲 Add to Home Screen
-                <span style={{ fontSize: "0.75rem", opacity: 0.7 }}>{showPWAInstructions ? "▲" : "▼"}</span>
-              </button>
-              {showPWAInstructions && (
-                <div style={{
-                  marginTop: 12,
-                  padding: "16px 18px",
-                  background: "rgba(255,255,255,0.95)",
-                  borderRadius: 16,
-                  boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 16,
-                }}>
-                  <p style={{ margin: 0, fontSize: "0.85rem", color: "#374151", fontWeight: 600 }}>
-                    Installing ViteMeals lets you get push notifications for meal invites, messages, and friend requests.
-                  </p>
-                  <div>
-                    <div style={{ fontWeight: 800, fontSize: "0.85rem", color: "#9a3412", marginBottom: 8 }}>iPhone / iPad — Safari</div>
-                    <ol style={{ margin: 0, paddingLeft: 20, color: "#374151", fontSize: "0.88rem", lineHeight: 1.8 }}>
-                      <li>Tap the <strong>Share</strong> button (box with arrow at the bottom of Safari)</li>
-                      <li>Scroll down and tap <strong>Add to Home Screen</strong></li>
-                      <li>Tap <strong>Add</strong> — ViteMeals will appear on your home screen</li>
-                    </ol>
-                  </div>
-                  <div style={{ borderTop: "1px solid #e5e7eb", paddingTop: 16 }}>
-                    <div style={{ fontWeight: 800, fontSize: "0.85rem", color: "#1e3a5f", marginBottom: 8 }}>Android — Chrome</div>
-                    <ol style={{ margin: 0, paddingLeft: 20, color: "#374151", fontSize: "0.88rem", lineHeight: 1.8 }}>
-                      <li>Tap the <strong>⋮ menu</strong> in the top-right corner of Chrome</li>
-                      <li>Tap <strong>Add to Home screen</strong> or <strong>Install app</strong></li>
-                      <li>Tap <strong>Add</strong> — ViteMeals will appear on your home screen</li>
-                    </ol>
-                  </div>
-                </div>
-              )}
-            </div>
+          {/* Native app download — mobile only (replaces the old Add to Home Screen steps) */}
+          {showAppDownload && (
+            <a
+              href={APP_DOWNLOAD_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                padding: "14px 32px",
+                borderRadius: 50,
+                background: "white",
+                color: "#f97316",
+                fontWeight: 700,
+                fontFamily: "Inter, sans-serif",
+                fontSize: "1rem",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
+                width: "100%",
+                maxWidth: 280,
+                textAlign: "center",
+                textDecoration: "none",
+                boxSizing: "border-box",
+              }}
+            >
+              📲 Get the ViteMeals app
+            </a>
           )}
 
           <div style={{ flex: 1 }} />
